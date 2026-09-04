@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { handleToolCall } from "../dist/handlers.js";
 import { sleeperClient } from "../dist/sleeper-client.js";
 import { tools } from "../dist/tools.js";
+import { backtestDataProvider, calibrationProvider } from "../dist/projection-backtest.js";
 
 test("draft tools are registered", () => {
   const names = new Set(tools.map((tool) => tool.name));
@@ -13,10 +14,58 @@ test("draft tools are registered", () => {
     "get_live_draft_board",
     "get_draft_recommendations",
     "prepare_draft_data",
+    "backtest_projection_model",
     "import_draft_rankings",
     "get_saved_draft_rankings",
   ]) {
     assert.equal(names.has(name), true, `${name} should be registered`);
+  }
+});
+
+test("projection backtest uses league scoring and saves its calibration", async () => {
+  const originalGetDraft = sleeperClient.getDraft;
+  const originalGetLeague = sleeperClient.getLeague;
+  const originalLoadSeasons = backtestDataProvider.loadSeasons;
+  const originalSave = calibrationProvider.save;
+  let saved;
+  const makeRow = (season) => ({
+    season: String(season),
+    player_display_name: "Receiver One",
+    position: "WR",
+    games: "16",
+    receptions: String(70 + season - 2020),
+    receiving_yards: String(900 + (season - 2020) * 20),
+    receiving_tds: "6",
+  });
+  sleeperClient.getDraft = async () => ({
+    draft_id: "draft-1",
+    league_id: "league-1",
+    season: "2024",
+    settings: {},
+  });
+  sleeperClient.getLeague = async () => ({
+    league_id: "league-1",
+    name: "Test League",
+    scoring_settings: { rec: 1, rec_yd: 0.1, rec_td: 6 },
+  });
+  backtestDataProvider.loadSeasons = async (seasons) =>
+    new Map(seasons.map((season) => [season, [makeRow(season)]]));
+  calibrationProvider.save = async (calibration) => { saved = calibration; };
+  try {
+    const result = await handleToolCall("backtest_projection_model", {
+      draft_id: "draft-1",
+      evaluation_seasons: [2023],
+    });
+    assert.equal(result.success, true);
+    assert.equal(result.overall_metrics.samples, 1);
+    assert.equal(result.position_calibration.WR.samples, 1);
+    assert.deepEqual(result.downloaded_seasons, [2020, 2021, 2022, 2023]);
+    assert.equal(saved.scoring_fingerprint, result.scoring_fingerprint);
+  } finally {
+    sleeperClient.getDraft = originalGetDraft;
+    sleeperClient.getLeague = originalGetLeague;
+    backtestDataProvider.loadSeasons = originalLoadSeasons;
+    calibrationProvider.save = originalSave;
   }
 });
 

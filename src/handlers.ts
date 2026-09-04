@@ -24,6 +24,7 @@ import {
   ImportDraftRankingsSchema,
   GetSavedDraftRankingsSchema,
   PrepareDraftDataSchema,
+  BacktestProjectionModelSchema,
   ClearCacheSchema,
 } from "./tools.js";
 import type { PlayerWithDetails, RosterWithDetails } from "./types.js";
@@ -40,6 +41,12 @@ import { buildDraftRoomModel } from "./draft-room-model.js";
 import { simulateToNextPick } from "./draft-simulation.js";
 import { projectionProvider } from "./nflverse-projections.js";
 import { scoreHistoricalProjection } from "./projection-scoring.js";
+import {
+  applyProjectionCalibration,
+  backtestDataProvider,
+  calibrationProvider,
+  runProjectionBacktest,
+} from "./projection-backtest.js";
 import {
   mergeRankings,
   parseRankings,
@@ -130,6 +137,9 @@ export async function handleToolCall(name: string, args: any) {
 
       case "prepare_draft_data":
         return handlePrepareDraftData(args);
+
+      case "backtest_projection_model":
+        return handleBacktestProjectionModel(args);
 
       case "import_draft_rankings":
         return handleImportDraftRankings(args);
@@ -566,7 +576,7 @@ async function handleGetDraftRecommendations(args: any) {
     league.scoring_settings,
     draft.settings.slots_super_flex ?? 0,
   );
-  const [savedRankings, marketResult, projectionResult] = await Promise.all([
+  const [savedRankings, marketResult, projectionResult, projectionCalibration] = await Promise.all([
     use_saved_rankings ? rankingProvider.getRankings(draft_id) : Promise.resolve([]),
     use_free_adp
       ? marketRankingProvider.getRankings({
@@ -580,13 +590,18 @@ async function handleGetDraftRecommendations(args: any) {
       targetSeason: Number(draft.season),
       allowNetwork: false,
     }),
+    calibrationProvider.get(league.scoring_settings),
   ]);
   const normalizeProjectionName = (value: string) =>
     value.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(jr|sr|ii|iii|iv)$/, "");
   const scoredProjections = new Map(
     projectionResult.projections.map((projection) => [
       normalizeProjectionName(projection.name),
-      scoreHistoricalProjection(projection, league.scoring_settings),
+      applyProjectionCalibration(
+        scoreHistoricalProjection(projection, league.scoring_settings),
+        projection.position,
+        projectionCalibration,
+      ),
     ]),
   );
   const rawProjections = new Map(
@@ -782,6 +797,24 @@ async function handleGetDraftRecommendations(args: any) {
         source_urls: projectionResult.source_urls,
         warnings: projectionResult.warnings,
         rookie_projections: projectionResult.projections.filter((projection) => projection.model_type === "rookie_prior").length,
+        calibration: projectionCalibration
+          ? {
+              created_at: projectionCalibration.created_at,
+              evaluation_seasons: projectionCalibration.evaluation_seasons,
+              scoring_fingerprint: projectionCalibration.scoring_fingerprint,
+              overall_metrics: projectionCalibration.overall,
+              calibrated_overall_metrics: projectionCalibration.calibrated_overall,
+              position_factors: Object.fromEntries(Object.entries(projectionCalibration.positions).map(([position, value]) => [
+                position,
+                {
+                  points_multiplier: value.points_multiplier,
+                  uncertainty_multiplier: value.uncertainty_multiplier,
+                  samples: value.samples,
+                  applied: value.samples >= 20,
+                },
+              ])),
+            }
+          : null,
         error: projectionResult.error,
       },
       fallback:
@@ -852,6 +885,59 @@ async function handlePrepareDraftData(args: any) {
     message: success
       ? `Prepared free draft data for ${league.name}`
       : "Draft data preparation was incomplete; inspect source errors and retry before draft day",
+  };
+}
+
+async function handleBacktestProjectionModel(args: any) {
+  const { draft_id, evaluation_seasons, timeout_ms } = BacktestProjectionModelSchema.parse(args);
+  const started = performance.now();
+  const draft = await sleeperClient.getDraft(draft_id);
+  if (!draft.league_id) {
+    return { success: false, error: "Projection backtesting requires a league-linked draft" };
+  }
+  const league = await sleeperClient.getLeague(draft.league_id);
+  const targetSeason = Number(draft.season);
+  const seasons = Array.from(new Set(
+    evaluation_seasons ?? [targetSeason - 3, targetSeason - 2, targetSeason - 1],
+  )).sort((a, b) => a - b);
+  const invalidSeason = seasons.find((season) => season >= targetSeason);
+  if (invalidSeason !== undefined) {
+    return {
+      success: false,
+      error: `Evaluation season ${invalidSeason} is not before draft season ${targetSeason}`,
+    };
+  }
+  const requiredSeasons = Array.from(new Set(
+    seasons.flatMap((season) => [season - 3, season - 2, season - 1, season]),
+  )).sort((a, b) => a - b);
+  const rowsBySeason = await backtestDataProvider.loadSeasons(requiredSeasons, timeout_ms);
+  const calibration = runProjectionBacktest({
+    rowsBySeason,
+    evaluationSeasons: seasons,
+    scoring: league.scoring_settings,
+  });
+  await calibrationProvider.save(calibration);
+  return {
+    success: true,
+    draft_id,
+    league: league.name,
+    draft_season: targetSeason,
+    scoring_fingerprint: calibration.scoring_fingerprint,
+    evaluated_seasons: seasons,
+    downloaded_seasons: requiredSeasons,
+    overall_metrics: calibration.overall,
+    calibrated_overall_metrics: calibration.calibrated_overall,
+    position_calibration: calibration.positions,
+    minimum_samples_to_apply: 20,
+    elapsed_ms: Math.round((performance.now() - started) * 100) / 100,
+    methodology: {
+      walk_forward: "Each evaluation season is predicted only from the three preceding regular seasons.",
+      eligible_players: "QB, RB, WR, and TE projections with at least 30 predicted league points.",
+      points_calibration: "Position multipliers are bounded to 0.75–1.25.",
+      uncertainty_calibration: "Position interval multipliers target the empirical 68th-percentile absolute error and are bounded to 0.75–2.0.",
+      limitation: "This test calibrates the historical-stat baseline. Current depth-chart and rookie-prior features are intentionally not reconstructed from point-in-time historical snapshots.",
+    },
+    message: `Saved projection calibration for ${league.name}; live recommendations will apply positions with at least 20 observations`,
   };
 }
 

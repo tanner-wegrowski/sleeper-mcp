@@ -27,7 +27,7 @@ export interface ProjectionResult {
 type TextResponse = Pick<Response, "ok" | "status" | "statusText" | "text">;
 type FetchTextLike = (url: string, init?: RequestInit) => Promise<TextResponse>;
 
-const STAT_FIELDS = [
+export const STAT_FIELDS = [
   "completions", "attempts", "passing_yards", "passing_tds", "passing_interceptions",
   "passing_first_downs", "passing_2pt_conversions", "carries", "rushing_yards",
   "rushing_tds", "rushing_first_downs", "rushing_2pt_conversions", "receptions",

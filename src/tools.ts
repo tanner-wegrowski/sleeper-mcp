@@ -261,6 +261,24 @@ export const PrepareDraftDataSchema = z.object({
     .describe("Maximum time for downloading and preparing free source data"),
 });
 
+export const BacktestProjectionModelSchema = z.object({
+  draft_id: z.string().describe("Sleeper draft ID whose league scoring rules should be tested"),
+  evaluation_seasons: z
+    .array(z.number().int().min(2002).max(2100))
+    .min(1)
+    .max(5)
+    .optional()
+    .describe("Seasons to evaluate; defaults to the three completed seasons before the draft season"),
+  timeout_ms: z
+    .number()
+    .int()
+    .min(5000)
+    .max(60000)
+    .optional()
+    .default(60000)
+    .describe("Maximum time for downloading historical nflverse data"),
+});
+
 export const ClearCacheSchema = z.object({
   confirm: z
     .boolean()
@@ -781,6 +799,32 @@ export const tools: Tool[] = [
     },
   },
   {
+    name: "backtest_projection_model",
+    description:
+      "Run a leakage-safe walk-forward test of the historical projection model using this draft's league scoring, save position-specific calibration, and report accuracy, bias, correlation, and prediction-interval coverage.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draft_id: { type: "string", description: "Sleeper draft ID" },
+        evaluation_seasons: {
+          type: "array",
+          minItems: 1,
+          maxItems: 5,
+          items: { type: "number", minimum: 2002, maximum: 2100 },
+          description: "Optional completed seasons to test; each prediction uses only its three preceding seasons",
+        },
+        timeout_ms: {
+          type: "number",
+          minimum: 5000,
+          maximum: 60000,
+          default: 60000,
+          description: "Maximum historical-data download time in milliseconds",
+        },
+      },
+      required: ["draft_id"],
+    },
+  },
+  {
     name: "import_draft_rankings",
     description:
       "Import and persist a personal ranking set for one Sleeper draft from JSON or CSV content. This writes local MCP data and either replaces the saved set or merges entries by player ID/name.",
@@ -860,6 +904,7 @@ export type ToolInput =
   | z.infer<typeof GetLiveDraftBoardSchema>
   | z.infer<typeof GetDraftRecommendationsSchema>
   | z.infer<typeof PrepareDraftDataSchema>
+  | z.infer<typeof BacktestProjectionModelSchema>
   | z.infer<typeof ImportDraftRankingsSchema>
   | z.infer<typeof GetSavedDraftRankingsSchema>
   | z.infer<typeof ClearCacheSchema>;

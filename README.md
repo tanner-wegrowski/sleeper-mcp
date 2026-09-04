@@ -185,6 +185,8 @@ Start a conversation with Claude and try:
 - `get_draft_picks` - Completed picks with optional player details
 - `get_live_draft_board` - On-the-clock ownership, traded picks, team builds, next user pick, and available-player pool
 - `get_draft_recommendations` - Time-budgeted live recommendations using rank/market value, actual roster construction, dynamic replacement value, injury context, and the probability a player survives to your next pick
+- `prepare_draft_data` - Pre-download free ADP, historical production, depth charts, and rookie inputs before draft day
+- `backtest_projection_model` - Walk-forward test the projection baseline under the league's exact scoring and save position-specific calibration
 - `import_draft_rankings` - Persist JSON or CSV rankings for a draft using replace or merge mode
 - `get_saved_draft_rankings` - Inspect and verify the ranking set saved for a draft
 
@@ -225,6 +227,16 @@ The live draft-room model also follows the actual pick owners before your next t
 When the user is on the clock, `calculation_mode: "live"` runs deterministic-seeded, time-bounded Monte Carlo continuations through that roster's following pick. Each leading candidate is selected in its own scenario; the intervening managers draft from sampled ADP distributions adjusted for their needs, preferences, and observed reach volatility. The result ranks the expected two-pick portfolio and reports rollouts, confidence, relative draft-equity score, opportunity cost, and the most common next-pick targets. The simulator stops at 5,000 rollouts or the remaining `time_budget_ms`, whichever comes first. Calls made before the user's turn return provisional deterministic guidance and preserve the simulation budget for the actual decision.
 
 Run `prepare_draft_data` before draft day to cache three regular seasons of free [nflverse player statistics](https://github.com/nflverse/nflverse-data) alongside ADP. The historical model weights recent per-game production most heavily, adjusts for games of evidence, forecasts availability, and produces a position-calibrated uncertainty range. Current [nflverse depth charts](https://nflreadr.nflverse.com/articles/dictionary_depth_charts.html) apply bounded, position-specific role adjustments. Players drafted in the target season who lack NFL history receive wider-uncertainty rookie priors derived from NFL draft round/pick, combine testing, and depth-chart role. At recommendation time, projected passing, rushing, receiving, fumble, two-point, and special-teams statistics are translated through the league's Sleeper scoring settings to produce floor, median, and ceiling points. Unsupported settings—such as weekly yardage bonuses—are returned explicitly instead of being silently treated as modeled. Team defenses and remaining unmatched players retain ADP-based evaluation.
+
+Run `backtest_projection_model` once for a draft after preparing its data. By default it evaluates the three completed seasons before the draft season. Every evaluation-season forecast is built strictly from that season's three preceding regular seasons, then compared with actual fantasy points under the current Sleeper league scoring. It reports sample count, mean absolute error, root mean squared error, bias, correlation, and floor-to-ceiling interval coverage overall and by position.
+
+The backtest saves shrinkage-regularized QB/RB/WR/TE point and uncertainty multipliers under a fingerprint of the league scoring settings. Future `get_draft_recommendations` calls load these locally with no network cost and apply a position only when it has at least 20 observations. Point factors are bounded to 0.75–1.25 and uncertainty factors to 0.75–2.0. Both raw and calibration-fit metrics are returned; the latter measure fit on the calibration sample and should not be read as a separate holdout result. The evaluation is conditional on players who recorded stats in the target season, and it does not reconstruct historical point-in-time depth charts or rookie priors. Those current-season features remain deliberately outside this baseline calibration until suitable free historical snapshots are available.
+
+A recommended pre-draft sequence is:
+
+1. Call `prepare_draft_data` with the draft ID.
+2. Call `backtest_projection_model` with the same draft ID.
+3. Call `get_draft_recommendations` during the draft; it will use the cached inputs and matching calibration automatically.
 
 To import CSV, pass the CSV text to `import_draft_rankings` with `format: "csv"`. The supported columns are:
 
@@ -327,6 +339,7 @@ npm run test:coverage
 - Rate limit: Maximum 1000 API calls per minute
 - Player data automatically cached (24h refresh)
 - `get_live_draft_board` ranks available players by Sleeper `search_rank`; this is a useful fallback, not a substitute for configurable rankings, ADP, or projections
+- Backtest calibration is scoring-specific and baseline-specific; material projection-model changes should be followed by a new backtest
 
 ## 📄 License
 
