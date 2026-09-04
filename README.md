@@ -184,7 +184,7 @@ Start a conversation with Claude and try:
 - `get_draft` - Draft format, order, roster mapping, and settings
 - `get_draft_picks` - Completed picks with optional player details
 - `get_live_draft_board` - On-the-clock ownership, traded picks, team builds, next user pick, and available-player pool
-- `get_draft_recommendations` - Transparent live recommendations using personal rankings, roster needs, and positional scarcity
+- `get_draft_recommendations` - Time-budgeted live recommendations using rank/market value, actual roster construction, dynamic replacement value, injury context, and the probability a player survives to your next pick
 - `import_draft_rankings` - Persist JSON or CSV rankings for a draft using replace or merge mode
 - `get_saved_draft_rankings` - Inspect and verify the ranking set saved for a draft
 
@@ -213,6 +213,8 @@ Personal rankings are optional and can be supplied inline:
 ```
 
 Rankings match by Sleeper player ID first and normalized player name second. Players not present in the supplied list fall back to Sleeper `search_rank`, and each recommendation identifies which source it used. Saved rankings load automatically; inline rankings override matching saved entries. Set `use_saved_rankings` to `false` to ignore persistence for one recommendation call.
+
+Live recommendations default to a 3-second computation budget and report data-fetch, calculation, and total runtime separately. Set `calculation_mode` to `instant` for a deterministic sub-second fallback, or adjust `time_budget_ms` between 50 and 10,000 milliseconds. The current contextual engine evaluates at most the 250 strongest available candidates; time-bounded opponent simulations will build on this same interface.
 
 To import CSV, pass the CSV text to `import_draft_rankings` with `format: "csv"`. The supported columns are:
 

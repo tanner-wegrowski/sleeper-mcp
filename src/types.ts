@@ -168,6 +168,8 @@ export interface SleeperDraft {
     slots_def?: number;
     slots_bn?: number;
     slots_flex?: number;
+    slots_super_flex?: number;
+    slots_rec_flex?: number;
   };
   season: string;
   season_type: string;

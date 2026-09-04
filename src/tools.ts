@@ -206,6 +206,19 @@ export const GetDraftRecommendationsSchema = z.object({
     .describe("How heavily to weight raw rank versus roster needs"),
   limit: z.number().int().min(1).max(25).optional().default(10),
   positions: z.array(z.string()).optional().describe("Optional position filter"),
+  calculation_mode: z
+    .enum(["instant", "live"])
+    .optional()
+    .default("live")
+    .describe("Instant uses deterministic scoring; live also performs time-bounded draft simulations when available"),
+  time_budget_ms: z
+    .number()
+    .int()
+    .min(50)
+    .max(10000)
+    .optional()
+    .default(3000)
+    .describe("Hard recommendation calculation budget; data fetching is measured separately"),
 });
 
 export const ImportDraftRankingsSchema = z.object({
@@ -694,6 +707,19 @@ export const tools: Tool[] = [
         },
         limit: { type: "number", minimum: 1, maximum: 25, default: 10 },
         positions: { type: "array", items: { type: "string" } },
+        calculation_mode: {
+          type: "string",
+          enum: ["instant", "live"],
+          default: "live",
+          description: "Fast calculation mode; live permits time-bounded simulation",
+        },
+        time_budget_ms: {
+          type: "number",
+          minimum: 50,
+          maximum: 10000,
+          default: 3000,
+          description: "Maximum recommendation computation time in milliseconds",
+        },
       },
       required: ["draft_id", "user_id"],
     },

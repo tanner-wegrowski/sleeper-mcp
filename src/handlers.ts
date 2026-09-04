@@ -29,8 +29,8 @@ import type { PlayerWithDetails, RosterWithDetails } from "./types.js";
 import { findNextPickForRoster, getPickLocation } from "./draft-analysis.js";
 import {
   getStarterTargets,
-  rankDraftCandidates,
 } from "./draft-recommendations.js";
+import { rankContextualDraftCandidates } from "./contextual-draft.js";
 import {
   mergeRankings,
   parseRankings,
@@ -491,8 +491,11 @@ async function handleGetDraftRecommendations(args: any) {
     strategy,
     limit,
     positions,
+    calculation_mode,
+    time_budget_ms,
   } =
     GetDraftRecommendationsSchema.parse(args);
+  const requestStarted = performance.now();
   const draft = await sleeperClient.getDraft(draft_id);
   if (!draft.league_id) {
     return {
@@ -501,10 +504,11 @@ async function handleGetDraftRecommendations(args: any) {
     };
   }
 
-  const [picks, tradedPicks, rosters] = await Promise.all([
+  const [picks, tradedPicks, rosters, league] = await Promise.all([
     sleeperClient.getDraftPicks(draft_id),
     sleeperClient.getDraftTradedPicks(draft_id),
     sleeperClient.getLeagueRosters(draft.league_id),
+    sleeperClient.getLeague(draft.league_id),
   ]);
   const userRoster = rosters.find((roster) => roster.owner_id === user_id);
   if (!userRoster) {
@@ -520,12 +524,15 @@ async function handleGetDraftRecommendations(args: any) {
     positions,
     5000,
   );
-  const userPicks = picks.filter(
-    (pick) => Number(pick.roster_id) === userRoster.roster_id,
+  const draftedPlayers = await sleeperClient.getPlayersWithDetails(
+    picks.map((pick) => pick.player_id),
   );
-  const userPlayers = await sleeperClient.getPlayersWithDetails(
-    userPicks.map((pick) => pick.player_id),
-  );
+  const draftedPlayerById = new Map(draftedPlayers.map((player) => [player.player_id, player]));
+  const userPicks = picks.filter((pick) => Number(pick.roster_id) === userRoster.roster_id);
+  const userPlayers = userPicks.flatMap((pick) => {
+    const player = draftedPlayerById.get(pick.player_id);
+    return player ? [player] : [];
+  });
   const draftedCounts = userPlayers.reduce(
     (counts, player) => {
       counts[player.position] = (counts[player.position] ?? 0) + 1;
@@ -534,20 +541,18 @@ async function handleGetDraftRecommendations(args: any) {
     {} as Record<string, number>,
   );
   const { starterTargets, flexSlots } = getStarterTargets(draft.settings);
+  const leagueDraftedCounts = draftedPlayers.reduce(
+    (counts, player) => {
+      counts[player.position] = (counts[player.position] ?? 0) + 1;
+      return counts;
+    },
+    {} as Record<string, number>,
+  );
   const savedRankings = use_saved_rankings
     ? await rankingProvider.getRankings(draft_id)
     : [];
   const inlineRankings = rankings ?? [];
   const effectiveRankings = mergeRankings(savedRankings, inlineRankings);
-  const recommendations = rankDraftCandidates(
-    availablePlayers,
-    effectiveRankings,
-    draftedCounts,
-    starterTargets,
-    flexSlots,
-    strategy,
-    limit,
-  );
   const lastPickNo = picks.reduce(
     (maximum, pick) => Math.max(maximum, pick.pick_no),
     0,
@@ -558,6 +563,25 @@ async function handleGetDraftRecommendations(args: any) {
     lastPickNo,
     userRoster.roster_id,
   );
+  const dataReadyAt = performance.now();
+  const contextual = rankContextualDraftCandidates(
+    availablePlayers,
+    effectiveRankings,
+    {
+      currentPickNo: lastPickNo + 1,
+      nextPickNo: nextPick?.pick_no ?? null,
+      teams: draft.settings.teams,
+      draftedCounts,
+      leagueDraftedCounts,
+      starterTargets,
+      flexSlots,
+      superFlexSlots: draft.settings.slots_super_flex ?? 0,
+      strategy,
+      limit,
+      timeBudgetMs: calculation_mode === "instant" ? Math.min(time_budget_ms, 250) : time_budget_ms,
+    },
+  );
+  const recommendations = contextual.recommendations;
   const customMatches = recommendations.filter(
     (recommendation) => recommendation.rank_source === "custom",
   ).length;
@@ -568,13 +592,29 @@ async function handleGetDraftRecommendations(args: any) {
     user_id,
     roster_id: userRoster.roster_id,
     strategy,
+    calculation_mode,
     next_pick: nextPick,
     roster_construction: {
       position_counts: draftedCounts,
       starter_targets: starterTargets,
       flex_slots: flexSlots,
+      super_flex_slots: draft.settings.slots_super_flex ?? 0,
+    },
+    league_context: {
+      name: league.name,
+      scoring_settings: league.scoring_settings,
+      roster_positions: league.roster_positions,
     },
     recommendations,
+    performance: {
+      data_fetch_ms: Math.round((dataReadyAt - requestStarted) * 100) / 100,
+      calculation_ms: contextual.calculationMs,
+      total_ms: Math.round((performance.now() - requestStarted) * 100) / 100,
+      evaluated_players: contextual.evaluated,
+      time_budget_ms,
+      timed_out: contextual.timedOut,
+      fallback_available: true,
+    },
     ranking_summary: {
       saved: savedRankings.length,
       supplied_inline: inlineRankings.length,
@@ -584,11 +624,12 @@ async function handleGetDraftRecommendations(args: any) {
         "Players without a matching personal ranking use Sleeper search_rank, which is not ADP or a projection.",
     },
     scoring_method: {
-      balanced: "65% rank, 25% roster need, 10% positional scarcity",
-      best_player_available: "90% rank, 5% roster need, 5% positional scarcity",
-      needs_based: "45% rank, 45% roster need, 10% positional scarcity",
-      scarcity:
-        "Score based on the rank gap to the next available player at the same position.",
+      balanced: "42% market/rank value, 22% roster fit, 24% dynamic replacement value, 12% urgency",
+      best_player_available: "56% market/rank value, 8% roster fit, 24% dynamic replacement value, 12% urgency",
+      needs_based: "32% market/rank value, 34% roster fit, 22% dynamic replacement value, 12% urgency",
+      replacement: "The remaining player at the position-wide starter demand boundary, recalculated after every pick.",
+      urgency: "Estimated probability that the player will be selected before this roster's next pick.",
+      health: "A bounded multiplier derived from current Sleeper availability status.",
     },
     message: `Returned ${recommendations.length} recommendations for roster ${userRoster.roster_id}`,
   };

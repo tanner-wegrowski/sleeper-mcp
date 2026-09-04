@@ -119,6 +119,12 @@ test("draft recommendations combine live roster state with personal rankings", a
     { player_id: "owned-qb", picked_by: "u1", roster_id: "10", round: 1, draft_slot: 1, pick_no: 1, draft_id: "draft-1" },
   ]);
   mock("getDraftTradedPicks", async () => []);
+  mock("getLeague", async () => ({
+    league_id: "league-1",
+    name: "Test League",
+    scoring_settings: { rec: 1 },
+    roster_positions: ["QB", "RB"],
+  }));
   mock("getLeagueRosters", async () => [
     { roster_id: 10, owner_id: "u1" },
     { roster_id: 20, owner_id: "u2" },
@@ -147,6 +153,8 @@ test("draft recommendations combine live roster state with personal rankings", a
     assert.equal(result.recommendations[0].notes, "Fill RB");
     assert.equal(result.roster_construction.position_counts.QB, 1);
     assert.equal(result.next_pick.pick_no, 4);
+    assert.ok(result.performance.calculation_ms < 250);
+    assert.equal(result.league_context.scoring_settings.rec, 1);
   } finally {
     for (const [name, implementation] of originalMethods) {
       sleeperClient[name] = implementation;
