@@ -216,6 +216,10 @@ Rankings match by Sleeper player ID first and normalized player name second. Pla
 
 Live recommendations default to a 3-second computation budget and report data-fetch, calculation, and total runtime separately. Set `calculation_mode` to `instant` for a deterministic sub-second fallback, or adjust `time_budget_ms` between 50 and 10,000 milliseconds. The current contextual engine evaluates at most the 250 strongest available candidates; time-bounded opponent simulations will build on this same interface.
 
+By default, recommendations automatically use the free [Fantasy Football Calculator ADP API](https://help.fantasyfootballcalculator.com/article/42-adp-rest-api) as their market baseline. The provider selects standard, half-PPR, PPR, or 2QB data from the league settings, maps unsupported league sizes to the nearest available feed, and caches results for 24 hours. Player-level ADP standard deviation drives the next-pick survival estimate. If a refresh times out, the last cached snapshot remains available and is explicitly marked stale. Set `use_free_adp` to `false` to disable it or `source_timeout_ms` to cap an initial/expired refresh between 100 and 3,000 milliseconds.
+
+Ranking precedence is: inline user rankings, saved user rankings, free ADP, then Sleeper search rank. The response identifies the source used for each recommendation and includes the ADP URL, format, draft count coverage, cache status, and refresh timestamp.
+
 To import CSV, pass the CSV text to `import_draft_rankings` with `format: "csv"`. The supported columns are:
 
 ```csv

@@ -30,7 +30,7 @@ export interface RankingProvider {
   getInfo(draftId: string): Promise<Omit<RankingDocument, "rankings"> & { count: number } | null>;
 }
 
-function defaultDataDirectory(): string {
+export function defaultDataDirectory(): string {
   return process.env.SLEEPER_MCP_DATA_DIR || join(homedir(), ".sleeper-mcp");
 }
 

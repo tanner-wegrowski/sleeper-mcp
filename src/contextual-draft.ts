@@ -20,7 +20,7 @@ export interface ContextualCandidate {
   player: PlayerWithDetails;
   overall_score: number;
   rank: number;
-  rank_source: "custom" | "sleeper_search_rank";
+  rank_source: "custom" | "ffc_adp" | "sleeper_search_rank";
   projected_points?: number;
   tier?: string;
   notes?: string;
@@ -93,7 +93,9 @@ export function rankContextualDraftCandidates(
       player,
       ranking: custom,
       rank: custom?.rank ?? player.search_rank ?? Number.MAX_SAFE_INTEGER,
-      rankSource: custom ? "custom" as const : "sleeper_search_rank" as const,
+      rankSource: custom
+        ? (custom.source === "ffc_adp" ? "ffc_adp" as const : "custom" as const)
+        : "sleeper_search_rank" as const,
     };
   }).filter((item) => Number.isFinite(item.rank)).sort((a, b) => a.rank - b.rank);
 
@@ -123,14 +125,15 @@ export function rankContextualDraftCandidates(
     const replacementScore = projectedGap === null ? clamp(rankGap * 2) : clamp(50 + projectedGap * 2.5);
     const marketScore = clamp(100 * logistic((options.currentPickNo + 8 - candidate.rank) / 12));
     const fitScore = rosterFit(candidate.player.position, options);
+    const survivalScale = Math.max(2.5, (candidate.ranking?.adp_stdev ?? 4.1) * 1.7);
     const survival = options.nextPickNo === null
       ? null
-      : clamp(logistic((candidate.rank - options.nextPickNo) / 7), 0.01, 0.99);
+      : clamp(logistic((candidate.rank - options.nextPickNo) / survivalScale), 0.01, 0.99);
     const urgency = survival === null ? 50 : 100 * (1 - survival);
     const health = healthMultiplier(candidate.player);
     const rawScore = marketScore * weights.market + fitScore * weights.fit + replacementScore * weights.replacement + urgency * weights.urgency;
     const reasons = [
-      `${candidate.rankSource === "custom" ? "Imported" : "Sleeper fallback"} rank ${candidate.rank}`,
+      `${candidate.rankSource === "custom" ? "Imported" : candidate.rankSource === "ffc_adp" ? "FFC ADP" : "Sleeper fallback"} rank ${candidate.rank}`,
       fitScore >= 90 ? `${candidate.player.position} fills a starting requirement` : `${candidate.player.position} roster-fit score ${Math.round(fitScore)}`,
       replacement ? `${Math.max(0, Math.round(rankGap))}-rank gap to the dynamic ${candidate.player.position} replacement` : `No clear ${candidate.player.position} replacement remains`,
     ];

@@ -199,6 +199,19 @@ export const GetDraftRecommendationsSchema = z.object({
     .optional()
     .default(true)
     .describe("Load rankings previously imported for this draft before applying inline overrides"),
+  use_free_adp: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe("Automatically load daily Fantasy Football Calculator ADP with cached fallback"),
+  source_timeout_ms: z
+    .number()
+    .int()
+    .min(100)
+    .max(3000)
+    .optional()
+    .default(1500)
+    .describe("Maximum wait for refreshing an expired or missing free ADP cache"),
   strategy: z
     .enum(["balanced", "best_player_available", "needs_based"])
     .optional()
@@ -698,6 +711,18 @@ export const tools: Tool[] = [
           type: "boolean",
           default: true,
           description: "Load saved rankings before applying inline overrides",
+        },
+        use_free_adp: {
+          type: "boolean",
+          default: true,
+          description: "Use cached daily Fantasy Football Calculator ADP as the free market baseline",
+        },
+        source_timeout_ms: {
+          type: "number",
+          minimum: 100,
+          maximum: 3000,
+          default: 1500,
+          description: "Maximum milliseconds to wait for an ADP refresh",
         },
         strategy: {
           type: "string",

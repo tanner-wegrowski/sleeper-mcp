@@ -32,6 +32,10 @@ import {
 } from "./draft-recommendations.js";
 import { rankContextualDraftCandidates } from "./contextual-draft.js";
 import {
+  marketRankingProvider,
+  selectFfcFormat,
+} from "./market-rankings.js";
+import {
   mergeRankings,
   parseRankings,
   rankingProvider,
@@ -488,6 +492,8 @@ async function handleGetDraftRecommendations(args: any) {
     user_id,
     rankings,
     use_saved_rankings,
+    use_free_adp,
+    source_timeout_ms,
     strategy,
     limit,
     positions,
@@ -548,11 +554,27 @@ async function handleGetDraftRecommendations(args: any) {
     },
     {} as Record<string, number>,
   );
-  const savedRankings = use_saved_rankings
-    ? await rankingProvider.getRankings(draft_id)
-    : [];
+  const adpFormat = selectFfcFormat(
+    league.scoring_settings,
+    draft.settings.slots_super_flex ?? 0,
+  );
+  const [savedRankings, marketResult] = await Promise.all([
+    use_saved_rankings ? rankingProvider.getRankings(draft_id) : Promise.resolve([]),
+    use_free_adp
+      ? marketRankingProvider.getRankings({
+          format: adpFormat,
+          teams: draft.settings.teams,
+          year: Number(draft.season),
+          timeoutMs: source_timeout_ms,
+        })
+      : Promise.resolve(null),
+  ]);
   const inlineRankings = rankings ?? [];
-  const effectiveRankings = mergeRankings(savedRankings, inlineRankings);
+  const marketRankings = marketResult?.rankings ?? [];
+  const effectiveRankings = mergeRankings(
+    mergeRankings(marketRankings, savedRankings),
+    inlineRankings,
+  );
   const lastPickNo = picks.reduce(
     (maximum, pick) => Math.max(maximum, pick.pick_no),
     0,
@@ -584,6 +606,9 @@ async function handleGetDraftRecommendations(args: any) {
   const recommendations = contextual.recommendations;
   const customMatches = recommendations.filter(
     (recommendation) => recommendation.rank_source === "custom",
+  ).length;
+  const marketMatches = recommendations.filter(
+    (recommendation) => recommendation.rank_source === "ffc_adp",
   ).length;
 
   return {
@@ -620,8 +645,23 @@ async function handleGetDraftRecommendations(args: any) {
       supplied_inline: inlineRankings.length,
       effective: effectiveRankings.length,
       custom_matches_in_results: customMatches,
+      market_matches_in_results: marketMatches,
+      free_market_source: marketResult
+        ? {
+            name: "Fantasy Football Calculator ADP",
+            format: marketResult.format,
+            requested_teams: marketResult.requested_teams,
+            source_teams: marketResult.teams,
+            year: marketResult.year,
+            fetched_at: marketResult.fetched_at,
+            cache_status: marketResult.cache_status,
+            entries: marketResult.rankings.length,
+            source_url: marketResult.source_url,
+            error: marketResult.error,
+          }
+        : { name: "Fantasy Football Calculator ADP", cache_status: "disabled" },
       fallback:
-        "Players without a matching personal ranking use Sleeper search_rank, which is not ADP or a projection.",
+        "Priority is inline rankings, saved rankings, free FFC ADP, then Sleeper search_rank. Sleeper search_rank is not ADP or a projection.",
     },
     scoring_method: {
       balanced: "42% market/rank value, 22% roster fit, 24% dynamic replacement value, 12% urgency",

@@ -51,6 +51,18 @@ test("survival estimate makes earlier-ranked players more urgent", () => {
   assert.ok(early.score_components.urgency > late.score_components.urgency);
 });
 
+test("market ADP standard deviation controls next-pick uncertainty", () => {
+  const players = [player("tight", "WR", 30), player("wide", "WR", 30)];
+  const result = rankContextualDraftCandidates(players, [
+    { player_id: "tight", rank: 30, source: "ffc_adp", adp_stdev: 1 },
+    { player_id: "wide", rank: 30, source: "ffc_adp", adp_stdev: 12 },
+  ], options);
+  const tight = result.recommendations.find((item) => item.player.player_id === "tight");
+  const wide = result.recommendations.find((item) => item.player.player_id === "wide");
+  assert.equal(tight.rank_source, "ffc_adp");
+  assert.ok(tight.probability_available_next_pick < wide.probability_available_next_pick);
+});
+
 test("current unavailable status applies a bounded health penalty", () => {
   const result = rankContextualDraftCandidates(
     [player("healthy", "WR", 20), player("injured", "WR", 20, "Injured Reserve")], [], options,

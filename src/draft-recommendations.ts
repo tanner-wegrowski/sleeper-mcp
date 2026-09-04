@@ -9,6 +9,9 @@ export interface DraftRanking {
   tier?: string;
   projected_points?: number;
   notes?: string;
+  source?: "user" | "ffc_adp";
+  adp_stdev?: number;
+  times_drafted?: number;
 }
 
 export interface DraftCandidateScore {

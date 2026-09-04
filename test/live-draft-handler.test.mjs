@@ -143,6 +143,7 @@ test("draft recommendations combine live roster state with personal rankings", a
       user_id: "u1",
       strategy: "needs_based",
       use_saved_rankings: false,
+      use_free_adp: false,
       rankings: [
         { player_id: "qb2", rank: 1 },
         { player_id: "rb1", rank: 5, notes: "Fill RB" },
