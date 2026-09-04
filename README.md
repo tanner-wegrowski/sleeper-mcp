@@ -185,6 +185,8 @@ Start a conversation with Claude and try:
 - `get_draft_picks` - Completed picks with optional player details
 - `get_live_draft_board` - On-the-clock ownership, traded picks, team builds, next user pick, and available-player pool
 - `get_draft_recommendations` - Time-budgeted live recommendations using rank/market value, actual roster construction, dynamic replacement value, injury context, and the probability a player survives to your next pick
+- `get_pick_decision` - Compact clock-aware output: realistic targets before your turn, dream outcomes separately, and immediate choices while on the clock
+- `replay_draft` - Replay one manager's selections against that season's free ADP board and report availability, alternatives, reaches, and market regret
 - `prepare_draft_data` - Pre-download free ADP, historical production, depth charts, and rookie inputs before draft day
 - `backtest_projection_model` - Walk-forward test the projection baseline under the league's exact scoring and save position-specific calibration
 - `import_draft_rankings` - Persist JSON or CSV rankings for a draft using replace or merge mode
@@ -223,6 +225,12 @@ By default, recommendations automatically use the free [Fantasy Football Calcula
 Ranking precedence is: inline user rankings, saved user rankings, free ADP, then Sleeper search rank. The response identifies the source used for each recommendation and includes the ADP URL, format, draft count coverage, cache status, and refresh timestamp.
 
 The live draft-room model also follows the actual pick owners before your next turn, including snake order and traded picks. For each manager it tracks current position counts, open starter positions, observed position preferences, upcoming selections, and average reach versus FFC ADP. Recent six-pick position runs and the combined demand of those specific managers adjust each candidate's survival probability. Manager preferences use a room-level prior so one or two early selections do not create an extreme profile.
+
+When a league links to a previous season, returning managers' prior draft positions are matched by Sleeper user ID even when roster IDs change. Up to 12 historical picks act as a bounded prior for each manager's QB/RB/WR/TE preference, then current-draft behavior progressively takes over. Historical retrieval is cached in memory for 24 hours and silently falls back to the neutral room prior if the old league is unavailable.
+
+Use `get_pick_decision` for the normal draft-day interaction. It removes verbose Sleeper player metadata and returns a compact board with data freshness, timing, room pressure, historical sample coverage, and calibration status. Before the user's turn, candidate quality is combined with estimated survival to the target slot; players below 20% survival are separated as unlikely dream targets. While on the clock, it preserves the full decision engine's immediate ranking and treats survival as availability at the following pick.
+
+`replay_draft` is a transparent historical audit. It reconstructs the market board before every pick made by the requested user and compares the selection with the best remaining archived FFC ADP alternatives. Its `market_regret` is an ADP-distance diagnostic, not an outcome score and not proof that the market's first player was the correct choice.
 
 When the user is on the clock, `calculation_mode: "live"` runs deterministic-seeded, time-bounded Monte Carlo continuations through that roster's following pick. Each leading candidate is selected in its own scenario; the intervening managers draft from sampled ADP distributions adjusted for their needs, preferences, and observed reach volatility. The result ranks the expected two-pick portfolio and reports rollouts, confidence, relative draft-equity score, opportunity cost, and the most common next-pick targets. The simulator stops at 5,000 rollouts or the remaining `time_budget_ms`, whichever comes first. Calls made before the user's turn return provisional deterministic guidance and preserve the simulation budget for the actual decision.
 

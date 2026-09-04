@@ -93,6 +93,9 @@ Sleeper's public API is read-only. Draft selections, waiver claims, trades, and 
 - ✅ Upgrade live recommendations with dynamic replacement levels, projected-point gaps, next-pick survival estimates, injury context, and a measured computation budget with an instant fallback.
 - ✅ Add automatic free Fantasy Football Calculator ADP with league-format selection, daily caching, stale-cache fallback, source metadata, and player-level ADP dispersion.
 - ✅ Model the managers selecting before the user's next pick using open starters, position preferences, recent position runs, traded-pick ownership, and reach/wait behavior versus market ADP.
+- ✅ Seed returning-manager position preferences from the previous Sleeper league season, matched by user ID and bounded so live behavior takes over.
+- ✅ Add a compact clock-aware pick tool that separates realistic target-slot choices from low-survival dream outcomes without returning verbose player records.
+- ✅ Add historical draft replay against archived free ADP, including per-pick availability, alternatives, market regret, and explicit benchmark limitations.
 - ✅ Add a deterministic-seeded, time-bounded Monte Carlo layer that compares leading candidates through the user's following pick and returns expected two-pick value, opportunity cost, confidence, and likely follow-up targets.
 - ✅ Add pre-draft preparation of three free nflverse seasons, recency-weighted player stat forecasts, league-specific scoring translation, floor/median/ceiling ranges, cache-only live reads, and explicit unsupported-setting reporting.
 - ✅ Enrich veteran projections with bounded current depth-chart role adjustments and add high-uncertainty rookie priors from NFL draft capital, combine testing, and depth-chart placement.

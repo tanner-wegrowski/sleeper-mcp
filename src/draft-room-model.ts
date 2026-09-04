@@ -19,6 +19,13 @@ export interface DraftManagerProfile {
   position_preference: Record<string, number>;
   average_reach: number | null;
   ranked_picks_observed: number;
+  historical_picks_observed: number;
+}
+
+export interface HistoricalManagerPrior {
+  position_preference: Record<string, number>;
+  picks_observed: number;
+  drafts_observed: number;
 }
 
 export interface DraftRoomModel {
@@ -44,6 +51,7 @@ export function buildDraftRoomModel(input: {
   currentPickNo: number;
   nextUserPickNo: number | null;
   userRosterId: number;
+  historicalManagerPriors?: Record<number, HistoricalManagerPrior>;
 }): DraftRoomModel {
   const marketByName = new Map(
     input.marketRankings
@@ -100,9 +108,15 @@ export function buildDraftRoomModel(input: {
       CORE_POSITIONS.map((position) => [position, Math.max(0, (input.starterTargets[position] ?? 0) - (counts[position] ?? 0))]),
     );
     const preferences: Record<string, number> = {};
+    const historical = input.historicalManagerPriors?.[rosterId];
+    const historicalWeight = Math.min(12, historical?.picks_observed ?? 0);
     for (const position of CORE_POSITIONS) {
       const roomShare = totalCorePicks ? (roomCounts[position] ?? 0) / totalCorePicks : 0.25;
-      preferences[position] = rounded(((counts[position] ?? 0) + 4 * roomShare) / (picks.length + 4));
+      preferences[position] = rounded((
+        (counts[position] ?? 0)
+        + 4 * roomShare
+        + historicalWeight * (historical?.position_preference[position] ?? roomShare)
+      ) / (picks.length + 4 + historicalWeight));
     }
     const reaches = picks.flatMap((pick) => {
       const player = input.playerById.get(pick.player_id);
@@ -119,6 +133,7 @@ export function buildDraftRoomModel(input: {
       position_preference: preferences,
       average_reach: reaches.length ? rounded(reaches.reduce((sum, value) => sum + value, 0) / reaches.length) : null,
       ranked_picks_observed: reaches.length,
+      historical_picks_observed: historical?.picks_observed ?? 0,
     });
   }
 

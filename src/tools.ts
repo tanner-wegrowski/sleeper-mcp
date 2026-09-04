@@ -234,6 +234,20 @@ export const GetDraftRecommendationsSchema = z.object({
     .describe("Hard recommendation calculation budget; data fetching is measured separately"),
 });
 
+export const GetPickDecisionSchema = z.object({
+  draft_id: z.string().describe("Sleeper draft ID"),
+  user_id: z.string().describe("Sleeper user ID whose pick is being planned"),
+  strategy: z.enum(["balanced", "best_player_available", "needs_based"]).optional().default("balanced"),
+  limit: z.number().int().min(1).max(10).optional().default(5),
+  calculation_mode: z.enum(["instant", "live"]).optional().default("live"),
+  time_budget_ms: z.number().int().min(50).max(10000).optional().default(3000),
+});
+
+export const ReplayDraftSchema = z.object({
+  draft_id: z.string().describe("Completed or active Sleeper draft ID to replay"),
+  user_id: z.string().describe("Sleeper user ID whose selections should be evaluated"),
+});
+
 export const ImportDraftRankingsSchema = z.object({
   draft_id: z.string().describe("Sleeper draft ID used to store this ranking set"),
   format: z.enum(["json", "csv"]).describe("Format of the supplied content"),
@@ -780,6 +794,36 @@ export const tools: Tool[] = [
     },
   },
   {
+    name: "get_pick_decision",
+    description:
+      "Return a compact, clock-aware pick decision. Before the user's turn it separates realistic targets from unlikely dream outcomes; on the clock it returns the best immediate choices without verbose player metadata.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draft_id: { type: "string", description: "Sleeper draft ID" },
+        user_id: { type: "string", description: "Sleeper user ID" },
+        strategy: { type: "string", enum: ["balanced", "best_player_available", "needs_based"], default: "balanced" },
+        limit: { type: "number", minimum: 1, maximum: 10, default: 5 },
+        calculation_mode: { type: "string", enum: ["instant", "live"], default: "live" },
+        time_budget_ms: { type: "number", minimum: 50, maximum: 10000, default: 3000 },
+      },
+      required: ["draft_id", "user_id"],
+    },
+  },
+  {
+    name: "replay_draft",
+    description:
+      "Replay one manager's selections against the historical free ADP board, showing what was available, reaches, market regret, and position-by-round behavior. This is an audit baseline, not a claim that ADP was the optimal pick.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draft_id: { type: "string", description: "Sleeper draft ID" },
+        user_id: { type: "string", description: "Sleeper user ID to evaluate" },
+      },
+      required: ["draft_id", "user_id"],
+    },
+  },
+  {
     name: "prepare_draft_data",
     description:
       "Pre-download and cache free ADP plus three seasons of nflverse player statistics for a draft. Run before draft day so live recommendations never download historical datasets.",
@@ -903,6 +947,8 @@ export type ToolInput =
   | z.infer<typeof GetDraftPicksSchema>
   | z.infer<typeof GetLiveDraftBoardSchema>
   | z.infer<typeof GetDraftRecommendationsSchema>
+  | z.infer<typeof GetPickDecisionSchema>
+  | z.infer<typeof ReplayDraftSchema>
   | z.infer<typeof PrepareDraftDataSchema>
   | z.infer<typeof BacktestProjectionModelSchema>
   | z.infer<typeof ImportDraftRankingsSchema>

@@ -36,6 +36,7 @@ export interface SleeperLeague {
     waiver_day_of_week?: number;
   };
   avatar?: string;
+  previous_league_id?: string | null;
 }
 
 export interface SleeperRoster {

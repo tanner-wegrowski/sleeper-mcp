@@ -78,3 +78,17 @@ test("room model measures recent position runs and manager reaches", () => {
   assert.equal(model.recent_position_run.WR, 1);
   assert.ok(model.manager_profiles.find((profile) => profile.roster_id === 2).average_reach > 0);
 });
+
+test("room model blends prior-season manager position tendencies", () => {
+  const model = buildDraftRoomModel({
+    draft, tradedPicks: [], picks: [], playerById: new Map(), marketRankings: [],
+    starterTargets: { QB: 1, RB: 1, WR: 1, TE: 1 },
+    currentPickNo: 1, nextUserPickNo: 4, userRosterId: 1,
+    historicalManagerPriors: {
+      2: { position_preference: { QB: 0.05, RB: 0.75, WR: 0.15, TE: 0.05 }, picks_observed: 20, drafts_observed: 1 },
+    },
+  });
+  const manager = model.manager_profiles.find((profile) => profile.roster_id === 2);
+  assert.equal(manager.historical_picks_observed, 20);
+  assert.ok(manager.position_preference.RB > manager.position_preference.WR);
+});

@@ -21,13 +21,15 @@ import {
   GetDraftPicksSchema,
   GetLiveDraftBoardSchema,
   GetDraftRecommendationsSchema,
+  GetPickDecisionSchema,
+  ReplayDraftSchema,
   ImportDraftRankingsSchema,
   GetSavedDraftRankingsSchema,
   PrepareDraftDataSchema,
   BacktestProjectionModelSchema,
   ClearCacheSchema,
 } from "./tools.js";
-import type { PlayerWithDetails, RosterWithDetails } from "./types.js";
+import type { PlayerWithDetails, RosterWithDetails, SleeperLeague, SleeperRoster } from "./types.js";
 import { findNextPickForRoster, getPickLocation } from "./draft-analysis.js";
 import {
   getStarterTargets,
@@ -42,6 +44,7 @@ import { simulateToNextPick } from "./draft-simulation.js";
 import { projectionProvider } from "./nflverse-projections.js";
 import { scoreHistoricalProjection } from "./projection-scoring.js";
 import { normalizePlayerName } from "./player-name.js";
+import { buildHistoricalManagerPriors } from "./manager-history.js";
 import {
   applyProjectionCalibration,
   backtestDataProvider,
@@ -53,6 +56,33 @@ import {
   parseRankings,
   rankingProvider,
 } from "./rankings.js";
+
+const managerHistoryCache = new Map<string, { expires: number; priors: ReturnType<typeof buildHistoricalManagerPriors> }>();
+
+async function loadHistoricalManagerPriors(
+  league: SleeperLeague,
+  currentRosters: SleeperRoster[],
+): Promise<ReturnType<typeof buildHistoricalManagerPriors>> {
+  if (!league.previous_league_id) return {};
+  const cached = managerHistoryCache.get(league.league_id);
+  if (cached && cached.expires > Date.now()) return cached.priors;
+  try {
+    const [historicalRosters, drafts] = await Promise.all([
+      sleeperClient.getLeagueRosters(league.previous_league_id),
+      sleeperClient.getLeagueDrafts(league.previous_league_id),
+    ]);
+    const draftHistories = await Promise.all(
+      drafts.filter((draft) => draft.type !== "auction").map(async (draft) => ({
+        picks: await sleeperClient.getDraftPicks(draft.draft_id),
+      })),
+    );
+    const priors = buildHistoricalManagerPriors({ currentRosters, historicalRosters, drafts: draftHistories });
+    managerHistoryCache.set(league.league_id, { expires: Date.now() + 24 * 60 * 60 * 1000, priors });
+    return priors;
+  } catch {
+    return {};
+  }
+}
 
 // Web search functionality (simplified for MCP context)
 async function performWebSearch(query: string): Promise<string[]> {
@@ -135,6 +165,12 @@ export async function handleToolCall(name: string, args: any) {
 
       case "get_draft_recommendations":
         return handleGetDraftRecommendations(args);
+
+      case "get_pick_decision":
+        return handleGetPickDecision(args);
+
+      case "replay_draft":
+        return handleReplayDraft(args);
 
       case "prepare_draft_data":
         return handlePrepareDraftData(args);
@@ -577,7 +613,7 @@ async function handleGetDraftRecommendations(args: any) {
     league.scoring_settings,
     draft.settings.slots_super_flex ?? 0,
   );
-  const [savedRankings, marketResult, projectionResult, projectionCalibration] = await Promise.all([
+  const [savedRankings, marketResult, projectionResult, projectionCalibration, historicalManagerPriors] = await Promise.all([
     use_saved_rankings ? rankingProvider.getRankings(draft_id) : Promise.resolve([]),
     use_free_adp
       ? marketRankingProvider.getRankings({
@@ -592,6 +628,7 @@ async function handleGetDraftRecommendations(args: any) {
       allowNetwork: false,
     }),
     calibrationProvider.get(league.scoring_settings),
+    loadHistoricalManagerPriors(league, rosters),
   ]);
   const scoredProjections = new Map(
     projectionResult.projections.map((projection) => [
@@ -684,6 +721,7 @@ async function handleGetDraftRecommendations(args: any) {
     currentPickNo: onUserClock ? currentPickNo + 1 : currentPickNo,
     nextUserPickNo: comparisonPick?.pick_no ?? null,
     userRosterId: userRoster.roster_id,
+    historicalManagerPriors,
   });
   const dataReadyAt = performance.now();
   const contextual = rankContextualDraftCandidates(
@@ -829,6 +867,146 @@ async function handleGetDraftRecommendations(args: any) {
       simulation: "Live mode compares each leading candidate through the user's next pick using the actual intervening managers; instant mode skips this layer.",
     },
     message: `Returned ${recommendations.length} recommendations for roster ${userRoster.roster_id}`,
+  };
+}
+
+function compactCandidate(candidate: any) {
+  return {
+    player_id: candidate.player.player_id,
+    name: candidate.player.full_name,
+    position: candidate.player.position,
+    team: candidate.player.team,
+    overall_score: candidate.overall_score,
+    rank: candidate.rank,
+    rank_source: candidate.rank_source,
+    projected_points: candidate.projected_points ?? null,
+    projection_range: candidate.projection_floor === undefined
+      ? null
+      : { floor: candidate.projection_floor, ceiling: candidate.projection_ceiling },
+    probability_available_at_following_pick: candidate.probability_available_next_pick,
+    injury_status: candidate.player.injury_status ?? null,
+    reasons: candidate.reasons,
+    simulation: candidate.simulation ?? null,
+  };
+}
+
+async function handleGetPickDecision(args: any) {
+  const { draft_id, user_id, strategy, limit, calculation_mode, time_budget_ms } = GetPickDecisionSchema.parse(args);
+  const full = await handleGetDraftRecommendations({
+    draft_id,
+    user_id,
+    strategy,
+    limit: 25,
+    calculation_mode,
+    time_budget_ms,
+  });
+  if (!full.success) return full;
+  const result = full as any;
+  const all = result.recommendations as any[];
+  const targetScore = (candidate: any) => {
+    const survival = candidate.probability_available_next_pick ?? 1;
+    return candidate.overall_score * (0.35 + 0.65 * survival);
+  };
+  const realistic = [...all]
+    .filter((candidate) => (candidate.probability_available_next_pick ?? 1) >= 0.35)
+    .sort((a, b) => targetScore(b) - targetScore(a));
+  const phase = result.on_user_clock ? "pick_now" : "plan_for_next_pick";
+  const choices = (result.on_user_clock ? all : realistic.length ? realistic : [...all].sort((a, b) => targetScore(b) - targetScore(a)))
+    .slice(0, limit)
+    .map(compactCandidate);
+  return {
+    success: true,
+    phase,
+    league: result.league_context.name,
+    draft_id,
+    roster_id: result.roster_id,
+    on_user_clock: result.on_user_clock,
+    next_pick: result.next_pick,
+    following_pick: result.following_pick,
+    choices,
+    unlikely_dream_targets: result.on_user_clock
+      ? []
+      : all.filter((candidate) => (candidate.probability_available_next_pick ?? 1) < 0.2).slice(0, 3).map(compactCandidate),
+    roster_construction: result.roster_construction,
+    room_summary: {
+      opponent_picks_before_turn: result.draft_room.upcoming_opponent_picks,
+      position_pressure: result.draft_room.position_pressure,
+      historical_manager_picks_observed: result.draft_room.manager_profiles.reduce(
+        (sum: number, profile: any) => sum + (profile.historical_picks_observed ?? 0),
+        0,
+      ),
+    },
+    data: {
+      market_source: result.ranking_summary.free_market_source,
+      projection_cache_status: result.ranking_summary.free_projection_source.cache_status,
+      calibration_applied: Boolean(result.ranking_summary.free_projection_source.calibration),
+    },
+    performance: result.performance,
+    guidance: result.on_user_clock
+      ? "Choices are ranked for the current selection; survival refers to the following user pick."
+      : "Choices are weighted by both quality and estimated availability at the user's next pick; dream targets are shown separately.",
+  };
+}
+
+async function handleReplayDraft(args: any) {
+  const { draft_id, user_id } = ReplayDraftSchema.parse(args);
+  const draft = await sleeperClient.getDraft(draft_id);
+  if (!draft.league_id) return { success: false, error: "Draft replay requires a league-linked draft" };
+  const [league, rosters, picks] = await Promise.all([
+    sleeperClient.getLeague(draft.league_id),
+    sleeperClient.getLeagueRosters(draft.league_id),
+    sleeperClient.getDraftPicks(draft_id),
+  ]);
+  const roster = rosters.find((item) => item.owner_id === user_id);
+  const inferredRosterId = picks.find((pick) => pick.picked_by === user_id)?.roster_id;
+  const rosterId = roster?.roster_id ?? (inferredRosterId ? Number(inferredRosterId) : null);
+  if (rosterId === null) return { success: false, error: `No roster or picks found for user ${user_id}` };
+  const players = await sleeperClient.getPlayersWithDetails(picks.map((pick) => pick.player_id));
+  const playerById = new Map(players.map((player) => [player.player_id, player]));
+  const market = await marketRankingProvider.getRankings({
+    format: selectFfcFormat(league.scoring_settings, draft.settings.slots_super_flex ?? 0),
+    teams: draft.settings.teams,
+    year: Number(draft.season),
+    timeoutMs: 3000,
+  });
+  const marketByName = new Map(market.rankings.filter((item) => item.name).map((item) => [normalizePlayerName(item.name!), item]));
+  const drafted = new Set<string>();
+  const timeline: any[] = [];
+  for (const pick of [...picks].sort((a, b) => a.pick_no - b.pick_no)) {
+    const player = playerById.get(pick.player_id);
+    if (Number(pick.roster_id) === rosterId) {
+      const actual = player ? marketByName.get(normalizePlayerName(player.full_name)) : undefined;
+      const available = market.rankings.filter((item) => item.name && !drafted.has(normalizePlayerName(item.name)));
+      const best = available[0];
+      timeline.push({
+        pick_no: pick.pick_no,
+        round: pick.round,
+        selected: { name: player?.full_name ?? String(pick.metadata?.first_name ?? "") + " " + String(pick.metadata?.last_name ?? ""), position: player?.position ?? pick.metadata?.position ?? null, market_rank: actual?.rank ?? null },
+        best_market_available: best ? { name: best.name, rank: best.rank } : null,
+        market_regret: actual && best ? Math.round((actual.rank - best.rank) * 10) / 10 : null,
+        alternatives: available.slice(0, 3).map((item) => ({ name: item.name, rank: item.rank })),
+      });
+    }
+    if (player) drafted.add(normalizePlayerName(player.full_name));
+  }
+  const measured = timeline.filter((item) => item.market_regret !== null);
+  return {
+    success: true,
+    draft_id,
+    league: league.name,
+    season: draft.season,
+    status: draft.status,
+    roster_id: rosterId,
+    picks_replayed: timeline.length,
+    selections: timeline,
+    summary: {
+      selections_with_market_match: measured.length,
+      average_market_regret: measured.length
+        ? Math.round((measured.reduce((sum, item) => sum + item.market_regret, 0) / measured.length) * 10) / 10
+        : null,
+    },
+    historical_manager_priors: await loadHistoricalManagerPriors(league, rosters),
+    methodology: "Replays the board available before each user selection against the archived free FFC ADP for that season. It is a transparent market benchmark, not a claim that ADP was optimal or a full outcome-grade model replay.",
   };
 }
 
