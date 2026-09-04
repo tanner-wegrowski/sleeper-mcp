@@ -15,7 +15,7 @@ class SleeperMCPServer {
   constructor() {
     this.server = new Server({
       name: "sleeper-mcp",
-      version: "1.0.0",
+      version: "1.1.1",
     });
 
     this.setupHandlers();

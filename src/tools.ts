@@ -185,6 +185,37 @@ export const GetLiveDraftBoardSchema = z.object({
     .describe("Optional fantasy-position filter such as QB, RB, WR, or TE"),
 });
 
+const DraftRankingSchema = z
+  .object({
+    player_id: z.string().optional().describe("Sleeper player ID"),
+    name: z.string().optional().describe("Player name used when an ID is unavailable"),
+    rank: z.number().positive().describe("Overall rank; lower is better"),
+    tier: z.string().optional().describe("Optional personal tier label"),
+    projected_points: z.number().optional().describe("Optional projected season points"),
+    notes: z.string().optional().describe("Optional personal note"),
+  })
+  .refine((ranking) => ranking.player_id || ranking.name, {
+    message: "Each ranking requires player_id or name",
+  });
+
+export const GetDraftRecommendationsSchema = z.object({
+  draft_id: z.string().describe("Sleeper draft ID"),
+  user_id: z.string().describe("Sleeper user ID whose roster should be optimized"),
+  rankings: z
+    .array(DraftRankingSchema)
+    .max(2000)
+    .optional()
+    .default([])
+    .describe("Optional personal rankings; omitted players fall back to Sleeper search rank"),
+  strategy: z
+    .enum(["balanced", "best_player_available", "needs_based"])
+    .optional()
+    .default("balanced")
+    .describe("How heavily to weight raw rank versus roster needs"),
+  limit: z.number().int().min(1).max(25).optional().default(10),
+  positions: z.array(z.string()).optional().describe("Optional position filter"),
+});
+
 export const ClearCacheSchema = z.object({
   confirm: z
     .boolean()
@@ -618,6 +649,44 @@ export const tools: Tool[] = [
     },
   },
   {
+    name: "get_draft_recommendations",
+    description:
+      "Recommend the best available players for one manager using live Sleeper draft state, roster needs, positional scarcity, and optional personal rankings. Returns transparent score components and clearly labels Sleeper search-rank fallbacks.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draft_id: { type: "string", description: "Sleeper draft ID" },
+        user_id: { type: "string", description: "Sleeper user ID whose roster should be optimized" },
+        rankings: {
+          type: "array",
+          maxItems: 2000,
+          description: "Optional personal rankings; lower rank is better",
+          items: {
+            type: "object",
+            properties: {
+              player_id: { type: "string", description: "Sleeper player ID" },
+              name: { type: "string", description: "Player name when ID is unavailable" },
+              rank: { type: "number", minimum: 1, description: "Overall rank; lower is better" },
+              tier: { type: "string" },
+              projected_points: { type: "number" },
+              notes: { type: "string" },
+            },
+            required: ["rank"],
+          },
+        },
+        strategy: {
+          type: "string",
+          enum: ["balanced", "best_player_available", "needs_based"],
+          default: "balanced",
+          description: "How heavily to weight raw rank versus roster needs",
+        },
+        limit: { type: "number", minimum: 1, maximum: 25, default: 10 },
+        positions: { type: "array", items: { type: "string" } },
+      },
+      required: ["draft_id", "user_id"],
+    },
+  },
+  {
     name: "clear_cache",
     description:
       "Clear the persistent player data cache to force fresh data retrieval on next request",
@@ -655,4 +724,5 @@ export type ToolInput =
   | z.infer<typeof GetDraftSchema>
   | z.infer<typeof GetDraftPicksSchema>
   | z.infer<typeof GetLiveDraftBoardSchema>
+  | z.infer<typeof GetDraftRecommendationsSchema>
   | z.infer<typeof ClearCacheSchema>;

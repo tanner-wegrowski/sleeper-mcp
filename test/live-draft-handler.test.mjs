@@ -11,6 +11,7 @@ test("draft tools are registered", () => {
     "get_draft",
     "get_draft_picks",
     "get_live_draft_board",
+    "get_draft_recommendations",
   ]) {
     assert.equal(names.has(name), true, `${name} should be registered`);
   }
@@ -72,6 +73,77 @@ test("live draft board aggregates picks, ownership, managers, and next pick", as
     assert.equal(result.next_user_pick.pick_no, 6);
     assert.equal(result.available_players[0].player_id, "p3");
     assert.deepEqual(result.teams[0].position_counts, { RB: 1 });
+  } finally {
+    for (const [name, implementation] of originalMethods) {
+      sleeperClient[name] = implementation;
+    }
+  }
+});
+
+test("draft recommendations combine live roster state with personal rankings", async () => {
+  const originalMethods = new Map();
+  const mock = (name, implementation) => {
+    originalMethods.set(name, sleeperClient[name]);
+    sleeperClient[name] = implementation;
+  };
+  const activePlayer = (id, name, position, searchRank) => ({
+    player_id: id,
+    first_name: name,
+    last_name: "Player",
+    full_name: `${name} Player`,
+    display_position: position,
+    position,
+    team: "TEST",
+    status: "Active",
+    fantasy_positions: [position],
+    search_full_name: `${name.toLowerCase()}player`,
+    search_rank: searchRank,
+  });
+
+  mock("getDraft", async () => ({
+    draft_id: "draft-1",
+    league_id: "league-1",
+    type: "snake",
+    status: "drafting",
+    start_time: 0,
+    sport: "nfl",
+    settings: { teams: 2, rounds: 3, pick_timer: 120, slots_qb: 1, slots_rb: 1 },
+    season: "2026",
+    season_type: "regular",
+    slot_to_roster_id: { "1": 10, "2": 20 },
+    created: 0,
+  }));
+  mock("getDraftPicks", async () => [
+    { player_id: "owned-qb", picked_by: "u1", roster_id: "10", round: 1, draft_slot: 1, pick_no: 1, draft_id: "draft-1" },
+  ]);
+  mock("getDraftTradedPicks", async () => []);
+  mock("getLeagueRosters", async () => [
+    { roster_id: 10, owner_id: "u1" },
+    { roster_id: 20, owner_id: "u2" },
+  ]);
+  mock("getPlayersWithDetails", async () => [
+    activePlayer("owned-qb", "Owned", "QB", 10),
+  ]);
+  mock("getAvailableDraftPlayers", async () => [
+    activePlayer("qb2", "Top", "QB", 1),
+    activePlayer("rb1", "Needed", "RB", 5),
+  ]);
+
+  try {
+    const result = await handleToolCall("get_draft_recommendations", {
+      draft_id: "draft-1",
+      user_id: "u1",
+      strategy: "needs_based",
+      rankings: [
+        { player_id: "qb2", rank: 1 },
+        { player_id: "rb1", rank: 5, notes: "Fill RB" },
+      ],
+    });
+    assert.equal(result.success, true);
+    assert.equal(result.recommendations[0].player.player_id, "rb1");
+    assert.equal(result.recommendations[0].notes, "Fill RB");
+    assert.equal(result.roster_construction.position_counts.QB, 1);
+    assert.equal(result.next_pick.pick_no, 4);
   } finally {
     for (const [name, implementation] of originalMethods) {
       sleeperClient[name] = implementation;

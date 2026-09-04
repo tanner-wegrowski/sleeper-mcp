@@ -20,10 +20,15 @@ import {
   GetDraftSchema,
   GetDraftPicksSchema,
   GetLiveDraftBoardSchema,
+  GetDraftRecommendationsSchema,
   ClearCacheSchema,
 } from "./tools.js";
 import type { PlayerWithDetails, RosterWithDetails } from "./types.js";
 import { findNextPickForRoster, getPickLocation } from "./draft-analysis.js";
+import {
+  getStarterTargets,
+  rankDraftCandidates,
+} from "./draft-recommendations.js";
 
 // Web search functionality (simplified for MCP context)
 async function performWebSearch(query: string): Promise<string[]> {
@@ -103,6 +108,9 @@ export async function handleToolCall(name: string, args: any) {
 
       case "get_live_draft_board":
         return handleGetLiveDraftBoard(args);
+
+      case "get_draft_recommendations":
+        return handleGetDraftRecommendations(args);
 
       case "clear_cache":
         return handleClearCache(args);
@@ -458,6 +466,103 @@ async function handleGetLiveDraftBoard(args: any) {
       currentPickNo === null
         ? `Draft ${draft_id} is complete with ${picks.length} picks`
         : `Draft ${draft_id} is on pick ${currentPickNo} of ${totalPicks}`,
+  };
+}
+
+async function handleGetDraftRecommendations(args: any) {
+  const { draft_id, user_id, rankings, strategy, limit, positions } =
+    GetDraftRecommendationsSchema.parse(args);
+  const draft = await sleeperClient.getDraft(draft_id);
+  if (!draft.league_id) {
+    return {
+      success: false,
+      error: "Draft recommendations require a league-linked draft",
+    };
+  }
+
+  const [picks, tradedPicks, rosters] = await Promise.all([
+    sleeperClient.getDraftPicks(draft_id),
+    sleeperClient.getDraftTradedPicks(draft_id),
+    sleeperClient.getLeagueRosters(draft.league_id),
+  ]);
+  const userRoster = rosters.find((roster) => roster.owner_id === user_id);
+  if (!userRoster) {
+    return {
+      success: false,
+      error: `No roster found for user ${user_id} in draft league ${draft.league_id}`,
+    };
+  }
+
+  const draftedPlayerIds = new Set(picks.map((pick) => pick.player_id));
+  const availablePlayers = await sleeperClient.getAvailableDraftPlayers(
+    draftedPlayerIds,
+    positions,
+    5000,
+  );
+  const userPicks = picks.filter(
+    (pick) => Number(pick.roster_id) === userRoster.roster_id,
+  );
+  const userPlayers = await sleeperClient.getPlayersWithDetails(
+    userPicks.map((pick) => pick.player_id),
+  );
+  const draftedCounts = userPlayers.reduce(
+    (counts, player) => {
+      counts[player.position] = (counts[player.position] ?? 0) + 1;
+      return counts;
+    },
+    {} as Record<string, number>,
+  );
+  const { starterTargets, flexSlots } = getStarterTargets(draft.settings);
+  const recommendations = rankDraftCandidates(
+    availablePlayers,
+    rankings,
+    draftedCounts,
+    starterTargets,
+    flexSlots,
+    strategy,
+    limit,
+  );
+  const lastPickNo = picks.reduce(
+    (maximum, pick) => Math.max(maximum, pick.pick_no),
+    0,
+  );
+  const nextPick = findNextPickForRoster(
+    draft,
+    tradedPicks,
+    lastPickNo,
+    userRoster.roster_id,
+  );
+  const customMatches = recommendations.filter(
+    (recommendation) => recommendation.rank_source === "custom",
+  ).length;
+
+  return {
+    success: true,
+    draft_id,
+    user_id,
+    roster_id: userRoster.roster_id,
+    strategy,
+    next_pick: nextPick,
+    roster_construction: {
+      position_counts: draftedCounts,
+      starter_targets: starterTargets,
+      flex_slots: flexSlots,
+    },
+    recommendations,
+    ranking_summary: {
+      supplied: rankings.length,
+      custom_matches_in_results: customMatches,
+      fallback:
+        "Players without a matching personal ranking use Sleeper search_rank, which is not ADP or a projection.",
+    },
+    scoring_method: {
+      balanced: "65% rank, 25% roster need, 10% positional scarcity",
+      best_player_available: "90% rank, 5% roster need, 5% positional scarcity",
+      needs_based: "45% rank, 45% roster need, 10% positional scarcity",
+      scarcity:
+        "Score based on the rank gap to the next available player at the same position.",
+    },
+    message: `Returned ${recommendations.length} recommendations for roster ${userRoster.roster_id}`,
   };
 }
 

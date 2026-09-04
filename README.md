@@ -184,6 +184,33 @@ Start a conversation with Claude and try:
 - `get_draft` - Draft format, order, roster mapping, and settings
 - `get_draft_picks` - Completed picks with optional player details
 - `get_live_draft_board` - On-the-clock ownership, traded picks, team builds, next user pick, and available-player pool
+- `get_draft_recommendations` - Transparent live recommendations using personal rankings, roster needs, and positional scarcity
+
+Personal rankings are optional and can be supplied inline:
+
+```json
+{
+  "draft_id": "123456789",
+  "user_id": "987654321",
+  "strategy": "balanced",
+  "limit": 10,
+  "rankings": [
+    {
+      "player_id": "11566",
+      "rank": 1,
+      "tier": "Elite",
+      "projected_points": 302.4,
+      "notes": "Preferred first-round target"
+    },
+    {
+      "name": "Amon-Ra St. Brown",
+      "rank": 2
+    }
+  ]
+}
+```
+
+Rankings match by Sleeper player ID first and normalized player name second. Players not present in the supplied list fall back to Sleeper `search_rank`, and each recommendation identifies which source it used.
 
 ### Player Tools
 - `search_players` - Search players in the database
