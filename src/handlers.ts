@@ -44,7 +44,7 @@ import { simulateToNextPick } from "./draft-simulation.js";
 import { projectionProvider } from "./nflverse-projections.js";
 import { scoreHistoricalProjection } from "./projection-scoring.js";
 import { normalizePlayerName } from "./player-name.js";
-import { buildHistoricalManagerPriors } from "./manager-history.js";
+import { buildHistoricalManagerPriors, type HistoricalDraftSeason } from "./manager-history.js";
 import {
   applyProjectionCalibration,
   backtestDataProvider,
@@ -62,26 +62,59 @@ const managerHistoryCache = new Map<string, { expires: number; priors: ReturnTyp
 async function loadHistoricalManagerPriors(
   league: SleeperLeague,
   currentRosters: SleeperRoster[],
+  options: { allowMarketNetwork?: boolean; forceRefresh?: boolean } = {},
 ): Promise<ReturnType<typeof buildHistoricalManagerPriors>> {
   if (!league.previous_league_id) return {};
   const cached = managerHistoryCache.get(league.league_id);
-  if (cached && cached.expires > Date.now()) return cached.priors;
+  if (!options.forceRefresh && cached && cached.expires > Date.now()) return cached.priors;
   try {
-    const [historicalRosters, drafts] = await Promise.all([
-      sleeperClient.getLeagueRosters(league.previous_league_id),
-      sleeperClient.getLeagueDrafts(league.previous_league_id),
-    ]);
-    const draftHistories = await Promise.all(
-      drafts.filter((draft) => draft.type !== "auction").map(async (draft) => ({
+    const seasons: HistoricalDraftSeason[] = [];
+    let previousLeagueId: string | null | undefined = league.previous_league_id;
+    for (let seasonsAgo = 1; previousLeagueId && seasonsAgo <= 3; seasonsAgo += 1) {
+      const historicalLeague = await sleeperClient.getLeague(previousLeagueId);
+      const [historicalRosters, drafts] = await Promise.all([
+        sleeperClient.getLeagueRosters(previousLeagueId),
+        sleeperClient.getLeagueDrafts(previousLeagueId),
+      ]);
+      const snakeDrafts = drafts.filter((draft) => draft.type !== "auction");
+      const draftHistories = await Promise.all(snakeDrafts.map(async (draft) => ({
+        draft,
         picks: await sleeperClient.getDraftPicks(draft.draft_id),
-      })),
-    );
-    const priors = buildHistoricalManagerPriors({ currentRosters, historicalRosters, drafts: draftHistories });
+      })));
+      const representativeDraft = snakeDrafts[0];
+      const currentSuperflex = league.roster_positions.includes("SUPER_FLEX");
+      const historicalSuperflex = historicalLeague.roster_positions.includes("SUPER_FLEX");
+      const formatSimilarity = (currentSuperflex === historicalSuperflex ? 1 : 0.65)
+        * Math.max(0.7, 1 - Math.abs(league.total_rosters - historicalLeague.total_rosters) * 0.05);
+      const market = representativeDraft
+        ? await marketRankingProvider.getRankings({
+            format: selectFfcFormat(historicalLeague.scoring_settings, representativeDraft.settings.slots_super_flex ?? 0),
+            teams: representativeDraft.settings.teams,
+            year: Number(historicalDraftSeason(representativeDraft, historicalLeague)),
+            timeoutMs: 2500,
+            allowNetwork: options.allowMarketNetwork ?? false,
+          })
+        : null;
+      seasons.push({
+        season: Number(historicalLeague.season),
+        seasons_ago: seasonsAgo,
+        rosters: historicalRosters,
+        drafts: draftHistories,
+        market_rankings: market?.rankings ?? [],
+        format_similarity: formatSimilarity,
+      });
+      previousLeagueId = historicalLeague.previous_league_id;
+    }
+    const priors = buildHistoricalManagerPriors({ currentRosters, seasons });
     managerHistoryCache.set(league.league_id, { expires: Date.now() + 24 * 60 * 60 * 1000, priors });
     return priors;
   } catch {
     return {};
   }
+}
+
+function historicalDraftSeason(draft: { season: string }, league: SleeperLeague): string {
+  return draft.season || league.season;
 }
 
 // Web search functionality (simplified for MCP context)
@@ -935,6 +968,14 @@ async function handleGetPickDecision(args: any) {
         (sum: number, profile: any) => sum + (profile.historical_picks_observed ?? 0),
         0,
       ),
+      historical_manager_seasons_observed: Math.max(
+        0,
+        ...result.draft_room.manager_profiles.map((profile: any) => profile.historical_seasons_observed ?? 0),
+      ),
+      historical_adp_matches: result.draft_room.manager_profiles.reduce(
+        (sum: number, profile: any) => sum + Math.max(0, (profile.ranked_picks_observed ?? 0) - (profile.picks_made ?? 0)),
+        0,
+      ),
     },
     data: {
       market_source: result.ranking_summary.free_market_source,
@@ -1022,7 +1063,8 @@ async function handlePrepareDraftData(args: any) {
     league.scoring_settings,
     draft.settings.slots_super_flex ?? 0,
   );
-  const [market, projections] = await Promise.all([
+  const currentRostersPromise = sleeperClient.getLeagueRosters(league.league_id);
+  const [market, projections, managerHistory] = await Promise.all([
     marketRankingProvider.getRankings({
       format,
       teams: draft.settings.teams,
@@ -1034,6 +1076,11 @@ async function handlePrepareDraftData(args: any) {
       allowNetwork: true,
       timeoutMs: timeout_ms,
     }),
+    currentRostersPromise.then((rosters) => loadHistoricalManagerPriors(
+      league,
+      rosters,
+      { allowMarketNetwork: true, forceRefresh: true },
+    )),
   ]);
   const success = market.rankings.length > 0 && projections.projections.length > 0;
   return {
@@ -1058,6 +1105,12 @@ async function handlePrepareDraftData(args: any) {
       source_urls: projections.source_urls,
       warnings: projections.warnings,
       error: projections.error,
+    },
+    manager_history: {
+      managers_matched: Object.keys(managerHistory).length,
+      seasons_observed: Math.max(0, ...Object.values(managerHistory).map((prior) => prior.seasons_observed)),
+      picks_observed: Object.values(managerHistory).reduce((sum, prior) => sum + prior.picks_observed, 0),
+      ranked_picks_observed: Object.values(managerHistory).reduce((sum, prior) => sum + prior.ranked_picks_observed, 0),
     },
     message: success
       ? `Prepared free draft data for ${league.name}`

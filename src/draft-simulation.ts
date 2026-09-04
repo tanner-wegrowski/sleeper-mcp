@@ -96,11 +96,14 @@ export function simulateToNextPick(input: {
           const open = Math.max(0, (input.starterTargets[position] ?? 0) - (counts[position] ?? 0));
           const preference = profile.position_preference[position] ?? 0.25;
           const deviation = candidate.adp_stdev ?? 7;
-          const reachVolatility = 1 + Math.min(1, Math.abs(profile.average_reach ?? 0) / 20);
+          const reachVolatility = 1 + Math.min(1.5, (profile.reach_stdev ?? Math.abs(profile.average_reach ?? 0)) / 18);
+          const needBonus = open > 0 ? 4 + 4 * Math.max(-1, Math.min(1, profile.need_sensitivity ?? 0)) : 0;
+          const runBonus = (input.room.recent_position_run[position] ?? 0) * (profile.run_sensitivity ?? 0) * 9;
           const sampledBoardPosition = candidate.rank
             + normal(random) * deviation * reachVolatility
-            - (open > 0 ? 5 : 0)
-            - Math.max(0, preference - 0.25) * 10;
+            - needBonus
+            - Math.max(0, preference - 0.25) * 12
+            - runBonus;
           if (sampledBoardPosition < bestBoardPosition) {
             bestBoardPosition = sampledBoardPosition;
             chosen = candidate;
