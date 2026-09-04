@@ -1,0 +1,80 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { handleToolCall } from "../dist/handlers.js";
+import { sleeperClient } from "../dist/sleeper-client.js";
+import { tools } from "../dist/tools.js";
+
+test("draft tools are registered", () => {
+  const names = new Set(tools.map((tool) => tool.name));
+  for (const name of [
+    "get_league_drafts",
+    "get_draft",
+    "get_draft_picks",
+    "get_live_draft_board",
+  ]) {
+    assert.equal(names.has(name), true, `${name} should be registered`);
+  }
+});
+
+test("live draft board aggregates picks, ownership, managers, and next pick", async () => {
+  const originalMethods = new Map();
+  const mock = (name, implementation) => {
+    originalMethods.set(name, sleeperClient[name]);
+    sleeperClient[name] = implementation;
+  };
+
+  mock("getDraft", async () => ({
+    draft_id: "draft-1",
+    league_id: "league-1",
+    type: "snake",
+    status: "drafting",
+    start_time: 0,
+    sport: "nfl",
+    settings: { teams: 2, rounds: 3, pick_timer: 120 },
+    season: "2026",
+    season_type: "regular",
+    slot_to_roster_id: { "1": 10, "2": 20 },
+    created: 0,
+  }));
+  mock("getDraftPicks", async () => [
+    { player_id: "p1", picked_by: "u1", roster_id: "10", round: 1, draft_slot: 1, pick_no: 1, draft_id: "draft-1" },
+    { player_id: "p2", picked_by: "u2", roster_id: "20", round: 1, draft_slot: 2, pick_no: 2, draft_id: "draft-1" },
+  ]);
+  mock("getDraftTradedPicks", async () => [
+    { season: "2026", round: 2, roster_id: 20, previous_owner_id: 20, owner_id: 10 },
+  ]);
+  mock("getLeagueRosters", async () => [
+    { roster_id: 10, owner_id: "u1" },
+    { roster_id: 20, owner_id: "u2" },
+  ]);
+  mock("getLeagueUsers", async () => [
+    { user_id: "u1", username: "alice", display_name: "Alice", avatar: null },
+    { user_id: "u2", username: "bob", display_name: "Bob", avatar: null },
+  ]);
+  mock("getPlayersWithDetails", async () => [
+    { player_id: "p1", position: "RB", full_name: "Runner One" },
+    { player_id: "p2", position: "WR", full_name: "Receiver Two" },
+  ]);
+  mock("getAvailableDraftPlayers", async () => [
+    { player_id: "p3", position: "QB", full_name: "Quarterback Three" },
+  ]);
+
+  try {
+    const result = await handleToolCall("get_live_draft_board", {
+      draft_id: "draft-1",
+      user_id: "u2",
+      available_limit: 10,
+    });
+    assert.equal(result.success, true);
+    assert.equal(result.progress.current_pick_no, 3);
+    assert.equal(result.on_clock.owner_roster_id, 10);
+    assert.equal(result.on_clock.manager.display_name, "Alice");
+    assert.equal(result.next_user_pick.pick_no, 6);
+    assert.equal(result.available_players[0].player_id, "p3");
+    assert.deepEqual(result.teams[0].position_counts, { RB: 1 });
+  } finally {
+    for (const [name, implementation] of originalMethods) {
+      sleeperClient[name] = implementation;
+    }
+  }
+});

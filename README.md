@@ -179,6 +179,12 @@ Start a conversation with Claude and try:
 - `get_matchup_details` - Detailed matchup information
 - `get_nfl_state` - Current NFL status (week, season)
 
+### Live Draft Management
+- `get_league_drafts` - Discover drafts and their status for a league
+- `get_draft` - Draft format, order, roster mapping, and settings
+- `get_draft_picks` - Completed picks with optional player details
+- `get_live_draft_board` - On-the-clock ownership, traded picks, team builds, next user pick, and available-player pool
+
 ### Player Tools
 - `search_players` - Search players in the database
 - `get_trending_players` - Trending add/drop players
@@ -267,6 +273,7 @@ npm run test:coverage
 - Sleeper API is read-only (no lineup modifications possible)
 - Rate limit: Maximum 1000 API calls per minute
 - Player data automatically cached (24h refresh)
+- `get_live_draft_board` ranks available players by Sleeper `search_rank`; this is a useful fallback, not a substitute for configurable rankings, ADP, or projections
 
 ## 📄 License
 

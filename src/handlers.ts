@@ -16,9 +16,14 @@ import {
   GetTransactionsSchema,
   ComparePlayersSchema,
   GetStartSitAdviceSchema,
+  GetLeagueDraftsSchema,
+  GetDraftSchema,
+  GetDraftPicksSchema,
+  GetLiveDraftBoardSchema,
   ClearCacheSchema,
 } from "./tools.js";
 import type { PlayerWithDetails, RosterWithDetails } from "./types.js";
+import { findNextPickForRoster, getPickLocation } from "./draft-analysis.js";
 
 // Web search functionality (simplified for MCP context)
 async function performWebSearch(query: string): Promise<string[]> {
@@ -87,6 +92,18 @@ export async function handleToolCall(name: string, args: any) {
       case "get_start_sit_advice":
         return handleGetStartSitAdvice(args);
 
+      case "get_league_drafts":
+        return handleGetLeagueDrafts(args);
+
+      case "get_draft":
+        return handleGetDraft(args);
+
+      case "get_draft_picks":
+        return handleGetDraftPicks(args);
+
+      case "get_live_draft_board":
+        return handleGetLiveDraftBoard(args);
+
       case "clear_cache":
         return handleClearCache(args);
 
@@ -114,13 +131,17 @@ async function handleGetUserInfo(args: any) {
 
 async function handleGetUserLeagues(args: any) {
   const { user_id, season, sport } = GetUserLeaguesSchema.parse(args);
-
-  const leagues = await sleeperClient.getUserLeagues(user_id, sport, season);
+  const resolvedSeason = season ?? (await sleeperClient.getCurrentSeason());
+  const leagues = await sleeperClient.getUserLeagues(
+    user_id,
+    sport,
+    resolvedSeason,
+  );
   return {
     leagues,
     count: leagues.length,
     success: true,
-    message: `Found ${leagues.length} ${sport.toUpperCase()} leagues for ${season} season`,
+    message: `Found ${leagues.length} ${sport.toUpperCase()} leagues for ${resolvedSeason} season`,
   };
 }
 
@@ -278,6 +299,165 @@ async function handleGetNFLState() {
     nfl_state: nflState,
     success: true,
     message: `Current NFL state: Week ${nflState.week} of ${nflState.season_type} season ${nflState.season}`,
+  };
+}
+
+async function handleGetLeagueDrafts(args: any) {
+  const { league_id } = GetLeagueDraftsSchema.parse(args);
+  const drafts = await sleeperClient.getLeagueDrafts(league_id);
+  return {
+    drafts,
+    count: drafts.length,
+    success: true,
+    message: `Retrieved ${drafts.length} draft${drafts.length === 1 ? "" : "s"} for league ${league_id}`,
+  };
+}
+
+async function handleGetDraft(args: any) {
+  const { draft_id } = GetDraftSchema.parse(args);
+  const draft = await sleeperClient.getDraft(draft_id);
+  return {
+    draft,
+    success: true,
+    message: `Retrieved ${draft.type} draft ${draft_id} (${draft.status})`,
+  };
+}
+
+async function handleGetDraftPicks(args: any) {
+  const { draft_id, include_player_details } = GetDraftPicksSchema.parse(args);
+  const picks = await sleeperClient.getDraftPicks(draft_id);
+
+  if (!include_player_details) {
+    return {
+      picks,
+      count: picks.length,
+      success: true,
+      message: `Retrieved ${picks.length} picks for draft ${draft_id}`,
+    };
+  }
+
+  const players = await sleeperClient.getPlayersWithDetails(
+    picks.map((pick) => pick.player_id),
+  );
+  const playerById = new Map(players.map((player) => [player.player_id, player]));
+  const enrichedPicks = picks.map((pick) => ({
+    ...pick,
+    player: playerById.get(pick.player_id) ?? null,
+  }));
+
+  return {
+    picks: enrichedPicks,
+    count: enrichedPicks.length,
+    success: true,
+    message: `Retrieved ${enrichedPicks.length} enriched picks for draft ${draft_id}`,
+  };
+}
+
+async function handleGetLiveDraftBoard(args: any) {
+  const { draft_id, user_id, available_limit, positions } =
+    GetLiveDraftBoardSchema.parse(args);
+  const [draft, picks, tradedPicks] = await Promise.all([
+    sleeperClient.getDraft(draft_id),
+    sleeperClient.getDraftPicks(draft_id),
+    sleeperClient.getDraftTradedPicks(draft_id),
+  ]);
+  const [rosters, users, pickedPlayers] = await Promise.all([
+    draft.league_id
+      ? sleeperClient.getLeagueRosters(draft.league_id)
+      : Promise.resolve([]),
+    draft.league_id
+      ? sleeperClient.getLeagueUsers(draft.league_id)
+      : Promise.resolve([]),
+    sleeperClient.getPlayersWithDetails(picks.map((pick) => pick.player_id)),
+  ]);
+
+  const draftedPlayerIds = new Set(picks.map((pick) => pick.player_id));
+  const availablePlayers = available_limit
+    ? await sleeperClient.getAvailableDraftPlayers(
+        draftedPlayerIds,
+        positions,
+        available_limit,
+      )
+    : [];
+  const playerById = new Map(
+    pickedPlayers.map((player) => [player.player_id, player]),
+  );
+  const userById = new Map(users.map((user) => [user.user_id, user]));
+  const rosterById = new Map(rosters.map((roster) => [roster.roster_id, roster]));
+  const lastPickNo = picks.reduce(
+    (maximum, pick) => Math.max(maximum, pick.pick_no),
+    0,
+  );
+  const totalPicks = draft.settings.teams * draft.settings.rounds;
+  const currentPickNo = lastPickNo < totalPicks ? lastPickNo + 1 : null;
+  const onClock = currentPickNo
+    ? getPickLocation(draft, tradedPicks, currentPickNo)
+    : null;
+  const onClockRoster = onClock?.owner_roster_id
+    ? rosterById.get(onClock.owner_roster_id)
+    : undefined;
+
+  const teamConstruction = new Map<
+    number,
+    { roster_id: number; manager: unknown; picks: unknown[]; position_counts: Record<string, number> }
+  >();
+  for (const pick of picks) {
+    const rosterId = Number(pick.roster_id);
+    const roster = rosterById.get(rosterId);
+    const player = playerById.get(pick.player_id) ?? null;
+    if (!teamConstruction.has(rosterId)) {
+      teamConstruction.set(rosterId, {
+        roster_id: rosterId,
+        manager: roster ? userById.get(roster.owner_id) ?? null : null,
+        picks: [],
+        position_counts: {},
+      });
+    }
+    const team = teamConstruction.get(rosterId)!;
+    team.picks.push({ ...pick, player });
+    const position = player?.position ?? pick.metadata?.position?.toString() ?? "UNK";
+    team.position_counts[position] = (team.position_counts[position] ?? 0) + 1;
+  }
+
+  const userRoster = user_id
+    ? rosters.find((roster) => roster.owner_id === user_id)
+    : undefined;
+  const nextUserPick = userRoster
+    ? findNextPickForRoster(draft, tradedPicks, lastPickNo, userRoster.roster_id)
+    : null;
+
+  return {
+    draft,
+    progress: {
+      completed_picks: picks.length,
+      total_picks: totalPicks,
+      current_pick_no: currentPickNo,
+      percent_complete: totalPicks
+        ? Math.round((picks.length / totalPicks) * 1000) / 10
+        : 0,
+    },
+    on_clock: onClock
+      ? {
+          ...onClock,
+          manager: onClockRoster
+            ? userById.get(onClockRoster.owner_id) ?? null
+            : null,
+        }
+      : null,
+    next_user_pick: nextUserPick,
+    picks: picks.map((pick) => ({
+      ...pick,
+      player: playerById.get(pick.player_id) ?? null,
+    })),
+    teams: Array.from(teamConstruction.values()),
+    traded_picks: tradedPicks,
+    available_players: availablePlayers,
+    available_player_rank_basis: "Sleeper search_rank (not ADP or projections)",
+    success: true,
+    message:
+      currentPickNo === null
+        ? `Draft ${draft_id} is complete with ${picks.length} picks`
+        : `Draft ${draft_id} is on pick ${currentPickNo} of ${totalPicks}`,
   };
 }
 

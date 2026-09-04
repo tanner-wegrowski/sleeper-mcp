@@ -8,7 +8,10 @@ export const GetUserInfoSchema = z.object({
 
 export const GetUserLeaguesSchema = z.object({
   user_id: z.string().describe("Sleeper user ID"),
-  season: z.string().optional().default("2024").describe("NFL season year"),
+  season: z
+    .string()
+    .optional()
+    .describe("NFL season year; defaults to Sleeper's current season"),
   sport: z
     .string()
     .optional()
@@ -145,6 +148,43 @@ export const GetStartSitAdviceSchema = z.object({
     .describe("Week to analyze (current week if not specified)"),
 });
 
+export const GetLeagueDraftsSchema = z.object({
+  league_id: z.string().describe("Sleeper league ID"),
+});
+
+export const GetDraftSchema = z.object({
+  draft_id: z.string().describe("Sleeper draft ID"),
+});
+
+export const GetDraftPicksSchema = z.object({
+  draft_id: z.string().describe("Sleeper draft ID"),
+  include_player_details: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe("Join each pick to the current Sleeper player record"),
+});
+
+export const GetLiveDraftBoardSchema = z.object({
+  draft_id: z.string().describe("Sleeper draft ID"),
+  user_id: z
+    .string()
+    .optional()
+    .describe("Sleeper user ID used to calculate that manager's next pick"),
+  available_limit: z
+    .number()
+    .int()
+    .min(0)
+    .max(200)
+    .optional()
+    .default(50)
+    .describe("Maximum available players to return, ranked by Sleeper search rank"),
+  positions: z
+    .array(z.string())
+    .optional()
+    .describe("Optional fantasy-position filter such as QB, RB, WR, or TE"),
+});
+
 export const ClearCacheSchema = z.object({
   confirm: z
     .boolean()
@@ -181,8 +221,7 @@ export const tools: Tool[] = [
         },
         season: {
           type: "string",
-          description: "NFL season year",
-          default: "2024",
+          description: "NFL season year; defaults to Sleeper's current season",
         },
         sport: {
           type: "string",
@@ -498,6 +537,87 @@ export const tools: Tool[] = [
     },
   },
   {
+    name: "get_league_drafts",
+    description:
+      "List every Sleeper draft associated with a league. Use this to discover a draft ID and its current status before opening a draft board.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        league_id: {
+          type: "string",
+          description: "Sleeper league ID",
+        },
+      },
+      required: ["league_id"],
+    },
+  },
+  {
+    name: "get_draft",
+    description:
+      "Get one Sleeper draft's format, status, order, roster mapping, timer, and roster-slot settings.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draft_id: {
+          type: "string",
+          description: "Sleeper draft ID",
+        },
+      },
+      required: ["draft_id"],
+    },
+  },
+  {
+    name: "get_draft_picks",
+    description:
+      "Get all completed picks in a Sleeper draft, optionally joined to current player details. Use for pick history or a compact raw draft feed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draft_id: {
+          type: "string",
+          description: "Sleeper draft ID",
+        },
+        include_player_details: {
+          type: "boolean",
+          description: "Join each pick to the current Sleeper player record",
+          default: true,
+        },
+      },
+      required: ["draft_id"],
+    },
+  },
+  {
+    name: "get_live_draft_board",
+    description:
+      "Build a live Sleeper draft snapshot with enriched picks, on-the-clock ownership, traded picks, team construction, top available players, and an optional user's next pick. This is the primary tool during a live draft.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draft_id: {
+          type: "string",
+          description: "Sleeper draft ID",
+        },
+        user_id: {
+          type: "string",
+          description: "Sleeper user ID used to calculate that manager's next pick",
+        },
+        available_limit: {
+          type: "number",
+          description: "Maximum available players ranked by Sleeper search rank",
+          minimum: 0,
+          maximum: 200,
+          default: 50,
+        },
+        positions: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional fantasy-position filter such as QB, RB, WR, or TE",
+        },
+      },
+      required: ["draft_id"],
+    },
+  },
+  {
     name: "clear_cache",
     description:
       "Clear the persistent player data cache to force fresh data retrieval on next request",
@@ -531,4 +651,8 @@ export type ToolInput =
   | z.infer<typeof GetTransactionsSchema>
   | z.infer<typeof ComparePlayersSchema>
   | z.infer<typeof GetStartSitAdviceSchema>
+  | z.infer<typeof GetLeagueDraftsSchema>
+  | z.infer<typeof GetDraftSchema>
+  | z.infer<typeof GetDraftPicksSchema>
+  | z.infer<typeof GetLiveDraftBoardSchema>
   | z.infer<typeof ClearCacheSchema>;

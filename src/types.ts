@@ -184,6 +184,34 @@ export interface SleeperDraft {
   created: number;
 }
 
+export interface SleeperDraftPick {
+  player_id: string;
+  picked_by: string;
+  roster_id: string;
+  round: number;
+  draft_slot: number;
+  pick_no: number;
+  metadata?: Record<string, string | number | null>;
+  is_keeper?: boolean | null;
+  draft_id: string;
+}
+
+export interface SleeperTradedPick {
+  season: string;
+  round: number;
+  roster_id: number;
+  previous_owner_id: number;
+  owner_id: number;
+}
+
+export interface DraftPickLocation {
+  pick_no: number;
+  round: number;
+  draft_slot: number;
+  original_roster_id: number | null;
+  owner_roster_id: number | null;
+}
+
 // Internal types for better UX
 export interface PlayerWithDetails extends SleeperPlayer {
   full_name: string;

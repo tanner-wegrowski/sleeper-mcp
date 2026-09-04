@@ -12,6 +12,8 @@ import type {
   SleeperTrendingPlayer,
   SleeperTransaction,
   SleeperDraft,
+  SleeperDraftPick,
+  SleeperTradedPick,
   PlayerWithDetails,
   RosterWithDetails,
 } from "./types.js";
@@ -123,12 +125,12 @@ export class SleeperClient {
     return this.fetch<SleeperDraft>(`/draft/${draftId}`);
   }
 
-  async getDraftPicks(draftId: string): Promise<any[]> {
-    return this.fetch<any[]>(`/draft/${draftId}/picks`);
+  async getDraftPicks(draftId: string): Promise<SleeperDraftPick[]> {
+    return this.fetch<SleeperDraftPick[]>(`/draft/${draftId}/picks`);
   }
 
-  async getDraftTradedPicks(draftId: string): Promise<any[]> {
-    return this.fetch<any[]>(`/draft/${draftId}/traded_picks`);
+  async getDraftTradedPicks(draftId: string): Promise<SleeperTradedPick[]> {
+    return this.fetch<SleeperTradedPick[]>(`/draft/${draftId}/traded_picks`);
   }
 
   // NFL State
@@ -527,6 +529,37 @@ export class SleeperClient {
     return results.sort(
       (a, b) => (a.search_rank || 9999) - (b.search_rank || 9999),
     );
+  }
+
+  async getAvailableDraftPlayers(
+    draftedPlayerIds: Set<string>,
+    positions: string[] | undefined,
+    limit: number,
+  ): Promise<PlayerWithDetails[]> {
+    await this.getAllPlayers();
+    const positionFilter = positions?.length
+      ? new Set(positions.map((position) => position.toUpperCase()))
+      : null;
+
+    return Array.from(this.players.values())
+      .filter((player) => !draftedPlayerIds.has(player.player_id))
+      .filter(
+        (player) =>
+          player.status === "Active" || player.position === "DEF",
+      )
+      .filter(
+        (player) =>
+          !positionFilter ||
+          player.fantasy_positions?.some((position) =>
+            positionFilter.has(position.toUpperCase()),
+          ),
+      )
+      .sort(
+        (a, b) => (a.search_rank ?? Number.MAX_SAFE_INTEGER) -
+          (b.search_rank ?? Number.MAX_SAFE_INTEGER),
+      )
+      .slice(0, limit)
+      .map((player) => this.enhancePlayerWithDetails(player));
   }
 }
 
