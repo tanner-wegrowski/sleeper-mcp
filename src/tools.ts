@@ -249,6 +249,18 @@ export const GetSavedDraftRankingsSchema = z.object({
   draft_id: z.string().describe("Sleeper draft ID whose saved rankings should be returned"),
 });
 
+export const PrepareDraftDataSchema = z.object({
+  draft_id: z.string().describe("Sleeper draft ID whose free data cache should be prepared"),
+  timeout_ms: z
+    .number()
+    .int()
+    .min(1000)
+    .max(60000)
+    .optional()
+    .default(30000)
+    .describe("Maximum time for downloading and preparing free source data"),
+});
+
 export const ClearCacheSchema = z.object({
   confirm: z
     .boolean()
@@ -750,6 +762,25 @@ export const tools: Tool[] = [
     },
   },
   {
+    name: "prepare_draft_data",
+    description:
+      "Pre-download and cache free ADP plus three seasons of nflverse player statistics for a draft. Run before draft day so live recommendations never download historical datasets.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draft_id: { type: "string", description: "Sleeper draft ID" },
+        timeout_ms: {
+          type: "number",
+          minimum: 1000,
+          maximum: 60000,
+          default: 30000,
+          description: "Maximum preparation time in milliseconds",
+        },
+      },
+      required: ["draft_id"],
+    },
+  },
+  {
     name: "import_draft_rankings",
     description:
       "Import and persist a personal ranking set for one Sleeper draft from JSON or CSV content. This writes local MCP data and either replaces the saved set or merges entries by player ID/name.",
@@ -828,6 +859,7 @@ export type ToolInput =
   | z.infer<typeof GetDraftPicksSchema>
   | z.infer<typeof GetLiveDraftBoardSchema>
   | z.infer<typeof GetDraftRecommendationsSchema>
+  | z.infer<typeof PrepareDraftDataSchema>
   | z.infer<typeof ImportDraftRankingsSchema>
   | z.infer<typeof GetSavedDraftRankingsSchema>
   | z.infer<typeof ClearCacheSchema>;

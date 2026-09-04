@@ -12,6 +12,7 @@ test("draft tools are registered", () => {
     "get_draft_picks",
     "get_live_draft_board",
     "get_draft_recommendations",
+    "prepare_draft_data",
     "import_draft_rankings",
     "get_saved_draft_rankings",
   ]) {

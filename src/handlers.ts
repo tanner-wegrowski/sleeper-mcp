@@ -23,6 +23,7 @@ import {
   GetDraftRecommendationsSchema,
   ImportDraftRankingsSchema,
   GetSavedDraftRankingsSchema,
+  PrepareDraftDataSchema,
   ClearCacheSchema,
 } from "./tools.js";
 import type { PlayerWithDetails, RosterWithDetails } from "./types.js";
@@ -37,6 +38,8 @@ import {
 } from "./market-rankings.js";
 import { buildDraftRoomModel } from "./draft-room-model.js";
 import { simulateToNextPick } from "./draft-simulation.js";
+import { projectionProvider } from "./nflverse-projections.js";
+import { scoreHistoricalProjection } from "./projection-scoring.js";
 import {
   mergeRankings,
   parseRankings,
@@ -124,6 +127,9 @@ export async function handleToolCall(name: string, args: any) {
 
       case "get_draft_recommendations":
         return handleGetDraftRecommendations(args);
+
+      case "prepare_draft_data":
+        return handlePrepareDraftData(args);
 
       case "import_draft_rankings":
         return handleImportDraftRankings(args);
@@ -560,7 +566,7 @@ async function handleGetDraftRecommendations(args: any) {
     league.scoring_settings,
     draft.settings.slots_super_flex ?? 0,
   );
-  const [savedRankings, marketResult] = await Promise.all([
+  const [savedRankings, marketResult, projectionResult] = await Promise.all([
     use_saved_rankings ? rankingProvider.getRankings(draft_id) : Promise.resolve([]),
     use_free_adp
       ? marketRankingProvider.getRankings({
@@ -570,13 +576,59 @@ async function handleGetDraftRecommendations(args: any) {
           timeoutMs: source_timeout_ms,
         })
       : Promise.resolve(null),
+    projectionProvider.getProjections({
+      targetSeason: Number(draft.season),
+      allowNetwork: false,
+    }),
   ]);
-  const inlineRankings = rankings ?? [];
-  const marketRankings = marketResult?.rankings ?? [];
-  const effectiveRankings = mergeRankings(
-    mergeRankings(marketRankings, savedRankings),
+  const normalizeProjectionName = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(jr|sr|ii|iii|iv)$/, "");
+  const scoredProjections = new Map(
+    projectionResult.projections.map((projection) => [
+      normalizeProjectionName(projection.name),
+      scoreHistoricalProjection(projection, league.scoring_settings),
+    ]),
+  );
+  const unsupportedScoringKeys = Array.from(new Set(
+    Array.from(scoredProjections.values()).flatMap((projection) => projection.unsupported_scoring_keys),
+  )).sort();
+  const marketRankings = (marketResult?.rankings ?? []).map((ranking) => {
+    const projection = ranking.name
+      ? scoredProjections.get(normalizeProjectionName(ranking.name))
+      : undefined;
+    return projection
+      ? {
+          ...ranking,
+          projected_points: projection.median,
+          projection_floor: projection.floor,
+          projection_ceiling: projection.ceiling,
+          projection_confidence: projection.confidence,
+          projection_source: "nflverse_history" as const,
+        }
+      : ranking;
+  });
+  const savedWithSource = savedRankings.map((ranking) => ({ ...ranking, source: "user" as const }));
+  const inlineRankings = (rankings ?? []).map((ranking) => ({ ...ranking, source: "user" as const }));
+  const mergedRankings = mergeRankings(
+    mergeRankings(marketRankings, savedWithSource),
     inlineRankings,
   );
+  const availableById = new Map(availablePlayers.map((player) => [player.player_id, player]));
+  const effectiveRankings = mergedRankings.map((ranking) => {
+    if (ranking.projected_points !== undefined) return ranking;
+    const name = ranking.name ?? (ranking.player_id ? availableById.get(ranking.player_id)?.full_name : undefined);
+    const projection = name ? scoredProjections.get(normalizeProjectionName(name)) : undefined;
+    return projection
+      ? {
+          ...ranking,
+          projected_points: projection.median,
+          projection_floor: projection.floor,
+          projection_ceiling: projection.ceiling,
+          projection_confidence: projection.confidence,
+          projection_source: "nflverse_history" as const,
+        }
+      : ranking;
+  });
   const lastPickNo = picks.reduce(
     (maximum, pick) => Math.max(maximum, pick.pick_no),
     0,
@@ -704,6 +756,17 @@ async function handleGetDraftRecommendations(args: any) {
             error: marketResult.error,
           }
         : { name: "Fantasy Football Calculator ADP", cache_status: "disabled" },
+      free_projection_source: {
+        name: "nflverse historical player stats",
+        target_season: projectionResult.target_season,
+        fetched_at: projectionResult.fetched_at,
+        cache_status: projectionResult.cache_status,
+        projected_players: projectionResult.projections.length,
+        matched_market_players: marketRankings.filter((ranking) => ranking.projection_source).length,
+        unsupported_scoring_keys: unsupportedScoringKeys,
+        source_urls: projectionResult.source_urls,
+        error: projectionResult.error,
+      },
       fallback:
         "Priority is inline rankings, saved rankings, free FFC ADP, then Sleeper search_rank. Sleeper search_rank is not ADP or a projection.",
     },
@@ -717,6 +780,60 @@ async function handleGetDraftRecommendations(args: any) {
       simulation: "Live mode compares each leading candidate through the user's next pick using the actual intervening managers; instant mode skips this layer.",
     },
     message: `Returned ${recommendations.length} recommendations for roster ${userRoster.roster_id}`,
+  };
+}
+
+async function handlePrepareDraftData(args: any) {
+  const { draft_id, timeout_ms } = PrepareDraftDataSchema.parse(args);
+  const started = performance.now();
+  const draft = await sleeperClient.getDraft(draft_id);
+  if (!draft.league_id) {
+    return { success: false, error: "Draft data preparation requires a league-linked draft" };
+  }
+  const league = await sleeperClient.getLeague(draft.league_id);
+  const format = selectFfcFormat(
+    league.scoring_settings,
+    draft.settings.slots_super_flex ?? 0,
+  );
+  const [market, projections] = await Promise.all([
+    marketRankingProvider.getRankings({
+      format,
+      teams: draft.settings.teams,
+      year: Number(draft.season),
+      timeoutMs: Math.min(3000, timeout_ms),
+    }),
+    projectionProvider.getProjections({
+      targetSeason: Number(draft.season),
+      allowNetwork: true,
+      timeoutMs: timeout_ms,
+    }),
+  ]);
+  const success = market.rankings.length > 0 && projections.projections.length > 0;
+  return {
+    success,
+    draft_id,
+    season: draft.season,
+    league: league.name,
+    elapsed_ms: Math.round((performance.now() - started) * 100) / 100,
+    market_adp: {
+      cache_status: market.cache_status,
+      format: market.format,
+      teams: market.teams,
+      entries: market.rankings.length,
+      fetched_at: market.fetched_at,
+      source_url: market.source_url,
+      error: market.error,
+    },
+    historical_projections: {
+      cache_status: projections.cache_status,
+      entries: projections.projections.length,
+      fetched_at: projections.fetched_at,
+      source_urls: projections.source_urls,
+      error: projections.error,
+    },
+    message: success
+      ? `Prepared free draft data for ${league.name}`
+      : "Draft data preparation was incomplete; inspect source errors and retry before draft day",
   };
 }
 

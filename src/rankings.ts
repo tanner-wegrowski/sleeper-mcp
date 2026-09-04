@@ -102,7 +102,7 @@ export class FileRankingProvider implements RankingProvider {
   }
 }
 
-function parseCsvRows(content: string): string[][] {
+export function parseCsvRows(content: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
@@ -184,7 +184,10 @@ export function mergeRankings(
   overrides: DraftRanking[],
 ): DraftRanking[] {
   const merged = new Map(base.map((ranking) => [rankingKey(ranking), ranking]));
-  for (const ranking of overrides) merged.set(rankingKey(ranking), ranking);
+  for (const ranking of overrides) {
+    const key = rankingKey(ranking);
+    merged.set(key, { ...merged.get(key), ...ranking });
+  }
   return Array.from(merged.values()).sort((a, b) => a.rank - b.rank);
 }
 

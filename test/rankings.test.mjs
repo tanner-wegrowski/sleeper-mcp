@@ -61,6 +61,16 @@ test("merge replaces matching entries and preserves rank order", () => {
   assert.equal(merged.find((ranking) => ranking.player_id === "p1").notes, "new");
 });
 
+test("merge preserves automatic projection metadata beneath user overrides", () => {
+  const merged = mergeRankings(
+    [{ name: "Player One", rank: 10, source: "ffc_adp", projected_points: 250 }],
+    [{ name: "Player One", rank: 5, source: "user" }],
+  );
+  assert.equal(merged[0].rank, 5);
+  assert.equal(merged[0].source, "user");
+  assert.equal(merged[0].projected_points, 250);
+});
+
 test("file provider persists and replaces a draft ranking set", async () => {
   const directory = await mkdtemp(join(tmpdir(), "sleeper-rankings-"));
   const provider = new FileRankingProvider(directory);

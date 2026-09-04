@@ -12,6 +12,10 @@ export interface DraftRanking {
   source?: "user" | "ffc_adp";
   adp_stdev?: number;
   times_drafted?: number;
+  projection_floor?: number;
+  projection_ceiling?: number;
+  projection_confidence?: number;
+  projection_source?: "nflverse_history";
 }
 
 export interface DraftCandidateScore {

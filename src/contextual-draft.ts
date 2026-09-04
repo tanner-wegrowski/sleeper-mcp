@@ -24,6 +24,9 @@ export interface ContextualCandidate {
   rank: number;
   rank_source: "custom" | "ffc_adp" | "sleeper_search_rank";
   projected_points?: number;
+  projection_floor?: number;
+  projection_ceiling?: number;
+  projection_confidence?: number;
   adp_stdev?: number;
   market_sample_size?: number;
   tier?: string;
@@ -164,6 +167,9 @@ export function rankContextualDraftCandidates(
       rank: candidate.rank,
       rank_source: candidate.rankSource,
       projected_points: candidate.ranking?.projected_points,
+      projection_floor: candidate.ranking?.projection_floor,
+      projection_ceiling: candidate.ranking?.projection_ceiling,
+      projection_confidence: candidate.ranking?.projection_confidence,
       adp_stdev: candidate.ranking?.adp_stdev,
       market_sample_size: candidate.ranking?.times_drafted,
       tier: candidate.ranking?.tier,

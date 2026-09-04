@@ -94,6 +94,7 @@ Sleeper's public API is read-only. Draft selections, waiver claims, trades, and 
 - ✅ Add automatic free Fantasy Football Calculator ADP with league-format selection, daily caching, stale-cache fallback, source metadata, and player-level ADP dispersion.
 - ✅ Model the managers selecting before the user's next pick using open starters, position preferences, recent position runs, traded-pick ownership, and reach/wait behavior versus market ADP.
 - ✅ Add a deterministic-seeded, time-bounded Monte Carlo layer that compares leading candidates through the user's following pick and returns expected two-pick value, opportunity cost, confidence, and likely follow-up targets.
+- ✅ Add pre-draft preparation of three free nflverse seasons, recency-weighted player stat forecasts, league-specific scoring translation, floor/median/ceiling ranges, cache-only live reads, and explicit unsupported-setting reporting.
 - ✅ Add persistent JSON/CSV import and a ranking-provider interface so large ranking sets do not need to be sent with every call.
 - Add provider adapters for licensed projection/ADP sources after data-source selection.
 - Add licensed/current ADP and projection providers only after choosing acceptable data sources and terms.

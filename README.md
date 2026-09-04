@@ -224,6 +224,8 @@ The live draft-room model also follows the actual pick owners before your next t
 
 When the user is on the clock, `calculation_mode: "live"` runs deterministic-seeded, time-bounded Monte Carlo continuations through that roster's following pick. Each leading candidate is selected in its own scenario; the intervening managers draft from sampled ADP distributions adjusted for their needs, preferences, and observed reach volatility. The result ranks the expected two-pick portfolio and reports rollouts, confidence, relative draft-equity score, opportunity cost, and the most common next-pick targets. The simulator stops at 5,000 rollouts or the remaining `time_budget_ms`, whichever comes first. Calls made before the user's turn return provisional deterministic guidance and preserve the simulation budget for the actual decision.
 
+Run `prepare_draft_data` before draft day to cache three regular seasons of free [nflverse player statistics](https://github.com/nflverse/nflverse-data) alongside ADP. The historical model weights recent per-game production most heavily, adjusts for games of evidence, forecasts availability, and produces a position-calibrated uncertainty range. At recommendation time, projected passing, rushing, receiving, fumble, two-point, and special-teams statistics are translated through the league's Sleeper scoring settings to produce floor, median, and ceiling points. Unsupported settings—such as weekly yardage bonuses—are returned explicitly instead of being silently treated as modeled. Rookies and unmatched players retain ADP-based evaluation until a dedicated rookie model is added.
+
 To import CSV, pass the CSV text to `import_draft_rankings` with `format: "csv"`. The supported columns are:
 
 ```csv
