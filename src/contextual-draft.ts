@@ -14,6 +14,8 @@ export interface ContextualDraftOptions {
   strategy: DraftStrategy;
   limit: number;
   timeBudgetMs: number;
+  positionPressure?: Record<string, number>;
+  averageManagerReach?: number;
 }
 
 export interface ContextualCandidate {
@@ -128,9 +130,16 @@ export function rankContextualDraftCandidates(
     const marketScore = clamp(100 * logistic((options.currentPickNo + 8 - candidate.rank) / 12));
     const fitScore = rosterFit(candidate.player.position, options);
     const survivalScale = Math.max(2.5, (candidate.ranking?.adp_stdev ?? 4.1) * 1.7);
+    const picksUntilNext = options.nextPickNo === null ? 0 : Math.max(0, options.nextPickNo - options.currentPickNo);
+    const positionPressure = options.positionPressure?.[candidate.player.position] ?? 0.25;
+    const pressureShift = (positionPressure - 0.25) * Math.min(12, picksUntilNext * 0.6);
+    const reachShift = Math.max(-5, Math.min(5, options.averageManagerReach ?? 0));
+    const adjustedNextPick = options.nextPickNo === null
+      ? null
+      : options.nextPickNo + pressureShift + reachShift;
     const survival = options.nextPickNo === null
       ? null
-      : clamp(logistic((candidate.rank - options.nextPickNo) / survivalScale), 0.01, 0.99);
+      : clamp(logistic((candidate.rank - adjustedNextPick!) / survivalScale), 0.01, 0.99);
     const urgency = survival === null ? 50 : 100 * (1 - survival);
     const health = healthMultiplier(candidate.player);
     const rawScore = marketScore * weights.market + fitScore * weights.fit + replacementScore * weights.replacement + urgency * weights.urgency;
@@ -140,6 +149,7 @@ export function rankContextualDraftCandidates(
       replacement ? `${Math.max(0, Math.round(rankGap))}-rank gap to the dynamic ${candidate.player.position} replacement` : `No clear ${candidate.player.position} replacement remains`,
     ];
     if (survival !== null && survival < 0.35) reasons.push(`Only ${Math.round(survival * 100)}% estimated chance to reach your next pick`);
+    if (positionPressure >= 0.4) reasons.push(`Draft-room demand is elevated at ${candidate.player.position}`);
     if (health < 1) reasons.push("Current availability status reduces confidence");
     results.push({
       player: candidate.player,

@@ -64,6 +64,17 @@ test("market ADP standard deviation controls next-pick uncertainty", () => {
   assert.ok(tight.probability_available_next_pick < wide.probability_available_next_pick);
 });
 
+test("high opponent positional pressure lowers next-pick survival", () => {
+  const players = [player("low", "RB", 45), player("high", "WR", 45)];
+  const result = rankContextualDraftCandidates(players, [
+    { player_id: "low", rank: 45, source: "ffc_adp", adp_stdev: 6 },
+    { player_id: "high", rank: 45, source: "ffc_adp", adp_stdev: 6 },
+  ], { ...options, positionPressure: { RB: 0.1, WR: 0.7 } });
+  const low = result.recommendations.find((item) => item.player.player_id === "low");
+  const high = result.recommendations.find((item) => item.player.player_id === "high");
+  assert.ok(high.probability_available_next_pick < low.probability_available_next_pick);
+});
+
 test("current unavailable status applies a bounded health penalty", () => {
   const result = rankContextualDraftCandidates(
     [player("healthy", "WR", 20), player("injured", "WR", 20, "Injured Reserve")], [], options,

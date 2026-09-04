@@ -156,6 +156,8 @@ test("draft recommendations combine live roster state with personal rankings", a
     assert.equal(result.next_pick.pick_no, 4);
     assert.ok(result.performance.calculation_ms < 250);
     assert.equal(result.league_context.scoring_settings.rec, 1);
+    assert.equal(result.draft_room.upcoming_opponent_picks, 2);
+    assert.deepEqual(result.draft_room.upcoming_roster_ids, [20, 20]);
   } finally {
     for (const [name, implementation] of originalMethods) {
       sleeperClient[name] = implementation;

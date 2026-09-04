@@ -220,6 +220,8 @@ By default, recommendations automatically use the free [Fantasy Football Calcula
 
 Ranking precedence is: inline user rankings, saved user rankings, free ADP, then Sleeper search rank. The response identifies the source used for each recommendation and includes the ADP URL, format, draft count coverage, cache status, and refresh timestamp.
 
+The live draft-room model also follows the actual pick owners before your next turn, including snake order and traded picks. For each manager it tracks current position counts, open starter positions, observed position preferences, upcoming selections, and average reach versus FFC ADP. Recent six-pick position runs and the combined demand of those specific managers adjust each candidate's survival probability. Manager preferences use a room-level prior so one or two early selections do not create an extreme profile.
+
 To import CSV, pass the CSV text to `import_draft_rankings` with `format: "csv"`. The supported columns are:
 
 ```csv

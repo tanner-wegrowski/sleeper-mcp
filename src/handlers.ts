@@ -35,6 +35,7 @@ import {
   marketRankingProvider,
   selectFfcFormat,
 } from "./market-rankings.js";
+import { buildDraftRoomModel } from "./draft-room-model.js";
 import {
   mergeRankings,
   parseRankings,
@@ -585,6 +586,17 @@ async function handleGetDraftRecommendations(args: any) {
     lastPickNo,
     userRoster.roster_id,
   );
+  const roomModel = buildDraftRoomModel({
+    draft,
+    tradedPicks,
+    picks,
+    playerById: draftedPlayerById,
+    marketRankings,
+    starterTargets,
+    currentPickNo: lastPickNo + 1,
+    nextUserPickNo: nextPick?.pick_no ?? null,
+    userRosterId: userRoster.roster_id,
+  });
   const dataReadyAt = performance.now();
   const contextual = rankContextualDraftCandidates(
     availablePlayers,
@@ -601,6 +613,8 @@ async function handleGetDraftRecommendations(args: any) {
       strategy,
       limit,
       timeBudgetMs: calculation_mode === "instant" ? Math.min(time_budget_ms, 250) : time_budget_ms,
+      positionPressure: roomModel.position_pressure,
+      averageManagerReach: roomModel.average_upcoming_manager_reach,
     },
   );
   const recommendations = contextual.recommendations;
@@ -630,6 +644,7 @@ async function handleGetDraftRecommendations(args: any) {
       scoring_settings: league.scoring_settings,
       roster_positions: league.roster_positions,
     },
+    draft_room: roomModel,
     recommendations,
     performance: {
       data_fetch_ms: Math.round((dataReadyAt - requestStarted) * 100) / 100,
