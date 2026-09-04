@@ -36,6 +36,7 @@ import {
   selectFfcFormat,
 } from "./market-rankings.js";
 import { buildDraftRoomModel } from "./draft-room-model.js";
+import { simulateToNextPick } from "./draft-simulation.js";
 import {
   mergeRankings,
   parseRankings,
@@ -586,6 +587,12 @@ async function handleGetDraftRecommendations(args: any) {
     lastPickNo,
     userRoster.roster_id,
   );
+  const currentPickNo = lastPickNo + 1;
+  const onUserClock = nextPick?.pick_no === currentPickNo;
+  const followingPick = nextPick
+    ? findNextPickForRoster(draft, tradedPicks, nextPick.pick_no, userRoster.roster_id)
+    : null;
+  const comparisonPick = onUserClock ? followingPick : nextPick;
   const roomModel = buildDraftRoomModel({
     draft,
     tradedPicks,
@@ -593,8 +600,8 @@ async function handleGetDraftRecommendations(args: any) {
     playerById: draftedPlayerById,
     marketRankings,
     starterTargets,
-    currentPickNo: lastPickNo + 1,
-    nextUserPickNo: nextPick?.pick_no ?? null,
+    currentPickNo: onUserClock ? currentPickNo + 1 : currentPickNo,
+    nextUserPickNo: comparisonPick?.pick_no ?? null,
     userRosterId: userRoster.roster_id,
   });
   const dataReadyAt = performance.now();
@@ -602,8 +609,8 @@ async function handleGetDraftRecommendations(args: any) {
     availablePlayers,
     effectiveRankings,
     {
-      currentPickNo: lastPickNo + 1,
-      nextPickNo: nextPick?.pick_no ?? null,
+      currentPickNo,
+      nextPickNo: comparisonPick?.pick_no ?? null,
       teams: draft.settings.teams,
       draftedCounts,
       leagueDraftedCounts,
@@ -617,7 +624,24 @@ async function handleGetDraftRecommendations(args: any) {
       averageManagerReach: roomModel.average_upcoming_manager_reach,
     },
   );
-  const recommendations = contextual.recommendations;
+  const simulationBudget = calculation_mode === "live" && onUserClock
+    ? Math.max(0, time_budget_ms - contextual.calculationMs)
+    : 0;
+  const simulationSeed = `${draft_id}:${lastPickNo + 1}`.split("").reduce(
+    (hash, character) => Math.imul(hash ^ character.charCodeAt(0), 16777619),
+    2166136261,
+  );
+  const simulation = simulateToNextPick({
+    candidates: contextual.candidatePool,
+    room: roomModel,
+    draftedCounts,
+    starterTargets,
+    flexSlots,
+    limit,
+    timeBudgetMs: simulationBudget,
+    seed: simulationSeed,
+  });
+  const recommendations = simulation.recommendations;
   const customMatches = recommendations.filter(
     (recommendation) => recommendation.rank_source === "custom",
   ).length;
@@ -632,7 +656,9 @@ async function handleGetDraftRecommendations(args: any) {
     roster_id: userRoster.roster_id,
     strategy,
     calculation_mode,
+    on_user_clock: onUserClock,
     next_pick: nextPick,
+    following_pick: followingPick,
     roster_construction: {
       position_counts: draftedCounts,
       starter_targets: starterTargets,
@@ -648,12 +674,15 @@ async function handleGetDraftRecommendations(args: any) {
     recommendations,
     performance: {
       data_fetch_ms: Math.round((dataReadyAt - requestStarted) * 100) / 100,
-      calculation_ms: contextual.calculationMs,
+      calculation_ms: Math.round((contextual.calculationMs + simulation.duration_ms) * 100) / 100,
       total_ms: Math.round((performance.now() - requestStarted) * 100) / 100,
       evaluated_players: contextual.evaluated,
       time_budget_ms,
-      timed_out: contextual.timedOut,
+      timed_out: contextual.timedOut || simulation.timed_out,
       fallback_available: true,
+      simulation_rollouts: simulation.rollouts,
+      simulated_candidates: simulation.candidate_scenarios,
+      simulation_confidence: simulation.confidence,
     },
     ranking_summary: {
       saved: savedRankings.length,
@@ -685,6 +714,7 @@ async function handleGetDraftRecommendations(args: any) {
       replacement: "The remaining player at the position-wide starter demand boundary, recalculated after every pick.",
       urgency: "Estimated probability that the player will be selected before this roster's next pick.",
       health: "A bounded multiplier derived from current Sleeper availability status.",
+      simulation: "Live mode compares each leading candidate through the user's next pick using the actual intervening managers; instant mode skips this layer.",
     },
     message: `Returned ${recommendations.length} recommendations for roster ${userRoster.roster_id}`,
   };

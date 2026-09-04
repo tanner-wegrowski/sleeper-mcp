@@ -38,6 +38,13 @@ export interface ContextualCandidate {
     health_multiplier: number;
   };
   reasons: string[];
+  simulation?: {
+    rollouts: number;
+    expected_two_pick_value: number;
+    draft_equity_score: number;
+    opportunity_cost: number;
+    common_next_targets: Array<{ player_id: string; name: string; probability: number }>;
+  };
 }
 
 function normalizeName(value: string): string {
@@ -86,7 +93,7 @@ export function rankContextualDraftCandidates(
   players: PlayerWithDetails[],
   rankings: DraftRanking[],
   options: ContextualDraftOptions,
-): { recommendations: ContextualCandidate[]; calculationMs: number; evaluated: number; timedOut: boolean } {
+): { recommendations: ContextualCandidate[]; candidatePool: ContextualCandidate[]; calculationMs: number; evaluated: number; timedOut: boolean } {
   const started = performance.now();
   const deadline = started + options.timeBudgetMs;
   const byId = new Map(rankings.filter((item) => item.player_id).map((item) => [item.player_id!, item]));
@@ -182,6 +189,7 @@ export function rankContextualDraftCandidates(
   results.sort((a, b) => b.overall_score - a.overall_score || a.rank - b.rank);
   return {
     recommendations: results.slice(0, options.limit),
+    candidatePool: results,
     calculationMs: Math.round((performance.now() - started) * 100) / 100,
     evaluated: results.length,
     timedOut,

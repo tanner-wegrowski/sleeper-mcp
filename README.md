@@ -222,6 +222,8 @@ Ranking precedence is: inline user rankings, saved user rankings, free ADP, then
 
 The live draft-room model also follows the actual pick owners before your next turn, including snake order and traded picks. For each manager it tracks current position counts, open starter positions, observed position preferences, upcoming selections, and average reach versus FFC ADP. Recent six-pick position runs and the combined demand of those specific managers adjust each candidate's survival probability. Manager preferences use a room-level prior so one or two early selections do not create an extreme profile.
 
+When the user is on the clock, `calculation_mode: "live"` runs deterministic-seeded, time-bounded Monte Carlo continuations through that roster's following pick. Each leading candidate is selected in its own scenario; the intervening managers draft from sampled ADP distributions adjusted for their needs, preferences, and observed reach volatility. The result ranks the expected two-pick portfolio and reports rollouts, confidence, relative draft-equity score, opportunity cost, and the most common next-pick targets. The simulator stops at 5,000 rollouts or the remaining `time_budget_ms`, whichever comes first. Calls made before the user's turn return provisional deterministic guidance and preserve the simulation budget for the actual decision.
+
 To import CSV, pass the CSV text to `import_draft_rankings` with `format: "csv"`. The supported columns are:
 
 ```csv
