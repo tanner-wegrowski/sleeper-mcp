@@ -40,6 +40,7 @@ test("FFC provider refreshes once and then serves the daily cache", async () => 
     assert.equal(calls, 1);
     assert.equal(second.rankings[0].rank, 12.4);
     assert.equal(second.rankings[0].adp_stdev, 3.2);
+    assert.equal(second.rankings[0].times_drafted, 800);
     assert.equal(second.rankings[0].source, "ffc_adp");
   } finally {
     await rm(directory, { recursive: true, force: true });

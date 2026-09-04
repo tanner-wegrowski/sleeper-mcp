@@ -22,6 +22,8 @@ export interface ContextualCandidate {
   rank: number;
   rank_source: "custom" | "ffc_adp" | "sleeper_search_rank";
   projected_points?: number;
+  adp_stdev?: number;
+  market_sample_size?: number;
   tier?: string;
   notes?: string;
   probability_available_next_pick: number | null;
@@ -145,6 +147,8 @@ export function rankContextualDraftCandidates(
       rank: candidate.rank,
       rank_source: candidate.rankSource,
       projected_points: candidate.ranking?.projected_points,
+      adp_stdev: candidate.ranking?.adp_stdev,
+      market_sample_size: candidate.ranking?.times_drafted,
       tier: candidate.ranking?.tier,
       notes: candidate.ranking?.notes,
       probability_available_next_pick: survival === null ? null : Math.round(survival * 1000) / 1000,

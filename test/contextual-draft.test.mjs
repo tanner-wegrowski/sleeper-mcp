@@ -54,12 +54,13 @@ test("survival estimate makes earlier-ranked players more urgent", () => {
 test("market ADP standard deviation controls next-pick uncertainty", () => {
   const players = [player("tight", "WR", 30), player("wide", "WR", 30)];
   const result = rankContextualDraftCandidates(players, [
-    { player_id: "tight", rank: 30, source: "ffc_adp", adp_stdev: 1 },
+    { player_id: "tight", rank: 30, source: "ffc_adp", adp_stdev: 1, times_drafted: 500 },
     { player_id: "wide", rank: 30, source: "ffc_adp", adp_stdev: 12 },
   ], options);
   const tight = result.recommendations.find((item) => item.player.player_id === "tight");
   const wide = result.recommendations.find((item) => item.player.player_id === "wide");
   assert.equal(tight.rank_source, "ffc_adp");
+  assert.equal(tight.market_sample_size, 500);
   assert.ok(tight.probability_available_next_pick < wide.probability_available_next_pick);
 });
 
