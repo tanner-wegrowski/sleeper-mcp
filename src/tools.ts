@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { DraftRankingSchema } from "./rankings.js";
 
 // Input validation schemas
 export const GetUserInfoSchema = z.object({
@@ -185,19 +186,6 @@ export const GetLiveDraftBoardSchema = z.object({
     .describe("Optional fantasy-position filter such as QB, RB, WR, or TE"),
 });
 
-const DraftRankingSchema = z
-  .object({
-    player_id: z.string().optional().describe("Sleeper player ID"),
-    name: z.string().optional().describe("Player name used when an ID is unavailable"),
-    rank: z.number().positive().describe("Overall rank; lower is better"),
-    tier: z.string().optional().describe("Optional personal tier label"),
-    projected_points: z.number().optional().describe("Optional projected season points"),
-    notes: z.string().optional().describe("Optional personal note"),
-  })
-  .refine((ranking) => ranking.player_id || ranking.name, {
-    message: "Each ranking requires player_id or name",
-  });
-
 export const GetDraftRecommendationsSchema = z.object({
   draft_id: z.string().describe("Sleeper draft ID"),
   user_id: z.string().describe("Sleeper user ID whose roster should be optimized"),
@@ -205,8 +193,12 @@ export const GetDraftRecommendationsSchema = z.object({
     .array(DraftRankingSchema)
     .max(2000)
     .optional()
-    .default([])
     .describe("Optional personal rankings; omitted players fall back to Sleeper search rank"),
+  use_saved_rankings: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe("Load rankings previously imported for this draft before applying inline overrides"),
   strategy: z
     .enum(["balanced", "best_player_available", "needs_based"])
     .optional()
@@ -214,6 +206,21 @@ export const GetDraftRecommendationsSchema = z.object({
     .describe("How heavily to weight raw rank versus roster needs"),
   limit: z.number().int().min(1).max(25).optional().default(10),
   positions: z.array(z.string()).optional().describe("Optional position filter"),
+});
+
+export const ImportDraftRankingsSchema = z.object({
+  draft_id: z.string().describe("Sleeper draft ID used to store this ranking set"),
+  format: z.enum(["json", "csv"]).describe("Format of the supplied content"),
+  content: z.string().min(1).max(2_000_000).describe("JSON or CSV ranking content"),
+  mode: z
+    .enum(["replace", "merge"])
+    .optional()
+    .default("replace")
+    .describe("Replace all saved rankings or merge by player ID/name"),
+});
+
+export const GetSavedDraftRankingsSchema = z.object({
+  draft_id: z.string().describe("Sleeper draft ID whose saved rankings should be returned"),
 });
 
 export const ClearCacheSchema = z.object({
@@ -674,6 +681,11 @@ export const tools: Tool[] = [
             required: ["rank"],
           },
         },
+        use_saved_rankings: {
+          type: "boolean",
+          default: true,
+          description: "Load saved rankings before applying inline overrides",
+        },
         strategy: {
           type: "string",
           enum: ["balanced", "best_player_available", "needs_based"],
@@ -684,6 +696,46 @@ export const tools: Tool[] = [
         positions: { type: "array", items: { type: "string" } },
       },
       required: ["draft_id", "user_id"],
+    },
+  },
+  {
+    name: "import_draft_rankings",
+    description:
+      "Import and persist a personal ranking set for one Sleeper draft from JSON or CSV content. This writes local MCP data and either replaces the saved set or merges entries by player ID/name.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draft_id: { type: "string", description: "Sleeper draft ID" },
+        format: {
+          type: "string",
+          enum: ["json", "csv"],
+          description: "Format of the supplied content",
+        },
+        content: {
+          type: "string",
+          maxLength: 2000000,
+          description: "JSON array/object or CSV text containing rankings",
+        },
+        mode: {
+          type: "string",
+          enum: ["replace", "merge"],
+          default: "replace",
+          description: "Replace all saved rankings or merge by player ID/name",
+        },
+      },
+      required: ["draft_id", "format", "content"],
+    },
+  },
+  {
+    name: "get_saved_draft_rankings",
+    description:
+      "Read the personal rankings currently saved for one Sleeper draft. Use after import to verify the stored ranking set or before generating recommendations.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        draft_id: { type: "string", description: "Sleeper draft ID" },
+      },
+      required: ["draft_id"],
     },
   },
   {
@@ -725,4 +777,6 @@ export type ToolInput =
   | z.infer<typeof GetDraftPicksSchema>
   | z.infer<typeof GetLiveDraftBoardSchema>
   | z.infer<typeof GetDraftRecommendationsSchema>
+  | z.infer<typeof ImportDraftRankingsSchema>
+  | z.infer<typeof GetSavedDraftRankingsSchema>
   | z.infer<typeof ClearCacheSchema>;

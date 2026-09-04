@@ -185,6 +185,8 @@ Start a conversation with Claude and try:
 - `get_draft_picks` - Completed picks with optional player details
 - `get_live_draft_board` - On-the-clock ownership, traded picks, team builds, next user pick, and available-player pool
 - `get_draft_recommendations` - Transparent live recommendations using personal rankings, roster needs, and positional scarcity
+- `import_draft_rankings` - Persist JSON or CSV rankings for a draft using replace or merge mode
+- `get_saved_draft_rankings` - Inspect and verify the ranking set saved for a draft
 
 Personal rankings are optional and can be supplied inline:
 
@@ -210,7 +212,19 @@ Personal rankings are optional and can be supplied inline:
 }
 ```
 
-Rankings match by Sleeper player ID first and normalized player name second. Players not present in the supplied list fall back to Sleeper `search_rank`, and each recommendation identifies which source it used.
+Rankings match by Sleeper player ID first and normalized player name second. Players not present in the supplied list fall back to Sleeper `search_rank`, and each recommendation identifies which source it used. Saved rankings load automatically; inline rankings override matching saved entries. Set `use_saved_rankings` to `false` to ignore persistence for one recommendation call.
+
+To import CSV, pass the CSV text to `import_draft_rankings` with `format: "csv"`. The supported columns are:
+
+```csv
+rank,player_id,name,tier,projected_points,notes
+1,11566,Example Player,Elite,302.4,Preferred first-round target
+2,,Another Player,A,286.1,"Name matching works, too"
+```
+
+JSON imports accept either an array of ranking objects or an object with a `rankings` array. `mode: "replace"` replaces the draft's saved list; `mode: "merge"` updates matching player IDs/names and preserves other entries.
+
+Ranking data is stored outside the package in `~/.sleeper-mcp/rankings` by default. Set `SLEEPER_MCP_DATA_DIR` to choose another private local data directory.
 
 ### Player Tools
 - `search_players` - Search players in the database

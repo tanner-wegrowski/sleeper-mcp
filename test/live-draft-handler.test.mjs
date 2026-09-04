@@ -12,6 +12,8 @@ test("draft tools are registered", () => {
     "get_draft_picks",
     "get_live_draft_board",
     "get_draft_recommendations",
+    "import_draft_rankings",
+    "get_saved_draft_rankings",
   ]) {
     assert.equal(names.has(name), true, `${name} should be registered`);
   }
@@ -134,6 +136,7 @@ test("draft recommendations combine live roster state with personal rankings", a
       draft_id: "draft-1",
       user_id: "u1",
       strategy: "needs_based",
+      use_saved_rankings: false,
       rankings: [
         { player_id: "qb2", rank: 1 },
         { player_id: "rb1", rank: 5, notes: "Fill RB" },

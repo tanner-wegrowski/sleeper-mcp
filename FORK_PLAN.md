@@ -90,7 +90,8 @@ Sleeper's public API is read-only. Draft selections, waiver claims, trades, and 
 
 - ✅ Add an inline JSON ranking format with player-ID/name matching and transparent Sleeper fallbacks.
 - ✅ Add `get_draft_recommendations` with selectable strategy and explicit rank, roster-need, and scarcity score components.
-- Add persistent JSON/CSV import and a ranking-provider interface so large ranking sets do not need to be sent with every call.
+- ✅ Add persistent JSON/CSV import and a ranking-provider interface so large ranking sets do not need to be sent with every call.
+- Add provider adapters for licensed projection/ADP sources after data-source selection.
 - Add licensed/current ADP and projection providers only after choosing acceptable data sources and terms.
 - Normalize league scoring and roster settings into a scoring profile.
 - Calculate value over replacement, positional scarcity, roster need, tier drop-offs, and best-player-available scores.

@@ -21,6 +21,8 @@ import {
   GetDraftPicksSchema,
   GetLiveDraftBoardSchema,
   GetDraftRecommendationsSchema,
+  ImportDraftRankingsSchema,
+  GetSavedDraftRankingsSchema,
   ClearCacheSchema,
 } from "./tools.js";
 import type { PlayerWithDetails, RosterWithDetails } from "./types.js";
@@ -29,6 +31,11 @@ import {
   getStarterTargets,
   rankDraftCandidates,
 } from "./draft-recommendations.js";
+import {
+  mergeRankings,
+  parseRankings,
+  rankingProvider,
+} from "./rankings.js";
 
 // Web search functionality (simplified for MCP context)
 async function performWebSearch(query: string): Promise<string[]> {
@@ -111,6 +118,12 @@ export async function handleToolCall(name: string, args: any) {
 
       case "get_draft_recommendations":
         return handleGetDraftRecommendations(args);
+
+      case "import_draft_rankings":
+        return handleImportDraftRankings(args);
+
+      case "get_saved_draft_rankings":
+        return handleGetSavedDraftRankings(args);
 
       case "clear_cache":
         return handleClearCache(args);
@@ -470,7 +483,15 @@ async function handleGetLiveDraftBoard(args: any) {
 }
 
 async function handleGetDraftRecommendations(args: any) {
-  const { draft_id, user_id, rankings, strategy, limit, positions } =
+  const {
+    draft_id,
+    user_id,
+    rankings,
+    use_saved_rankings,
+    strategy,
+    limit,
+    positions,
+  } =
     GetDraftRecommendationsSchema.parse(args);
   const draft = await sleeperClient.getDraft(draft_id);
   if (!draft.league_id) {
@@ -513,9 +534,14 @@ async function handleGetDraftRecommendations(args: any) {
     {} as Record<string, number>,
   );
   const { starterTargets, flexSlots } = getStarterTargets(draft.settings);
+  const savedRankings = use_saved_rankings
+    ? await rankingProvider.getRankings(draft_id)
+    : [];
+  const inlineRankings = rankings ?? [];
+  const effectiveRankings = mergeRankings(savedRankings, inlineRankings);
   const recommendations = rankDraftCandidates(
     availablePlayers,
-    rankings,
+    effectiveRankings,
     draftedCounts,
     starterTargets,
     flexSlots,
@@ -550,7 +576,9 @@ async function handleGetDraftRecommendations(args: any) {
     },
     recommendations,
     ranking_summary: {
-      supplied: rankings.length,
+      saved: savedRankings.length,
+      supplied_inline: inlineRankings.length,
+      effective: effectiveRankings.length,
       custom_matches_in_results: customMatches,
       fallback:
         "Players without a matching personal ranking use Sleeper search_rank, which is not ADP or a projection.",
@@ -563,6 +591,49 @@ async function handleGetDraftRecommendations(args: any) {
         "Score based on the rank gap to the next available player at the same position.",
     },
     message: `Returned ${recommendations.length} recommendations for roster ${userRoster.roster_id}`,
+  };
+}
+
+async function handleImportDraftRankings(args: any) {
+  const { draft_id, format, content, mode } =
+    ImportDraftRankingsSchema.parse(args);
+  const imported = parseRankings(content, format);
+  const existing = mode === "merge"
+    ? await rankingProvider.getRankings(draft_id)
+    : [];
+  const rankings = mode === "merge"
+    ? mergeRankings(existing, imported)
+    : imported;
+  const document = await rankingProvider.saveRankings(draft_id, rankings);
+
+  return {
+    success: true,
+    draft_id,
+    format,
+    mode,
+    imported_count: imported.length,
+    previous_count: existing.length,
+    total_count: document.rankings.length,
+    updated_at: document.updated_at,
+    message: `Saved ${document.rankings.length} personal rankings for draft ${draft_id}`,
+  };
+}
+
+async function handleGetSavedDraftRankings(args: any) {
+  const { draft_id } = GetSavedDraftRankingsSchema.parse(args);
+  const [rankings, info] = await Promise.all([
+    rankingProvider.getRankings(draft_id),
+    rankingProvider.getInfo(draft_id),
+  ]);
+  return {
+    success: true,
+    draft_id,
+    rankings,
+    count: rankings.length,
+    updated_at: info?.updated_at ?? null,
+    message: info
+      ? `Retrieved ${rankings.length} saved rankings for draft ${draft_id}`
+      : `No saved rankings found for draft ${draft_id}`,
   };
 }
 
