@@ -95,6 +95,7 @@ Sleeper's public API is read-only. Draft selections, waiver claims, trades, and 
 - ✅ Model the managers selecting before the user's next pick using open starters, position preferences, recent position runs, traded-pick ownership, and reach/wait behavior versus market ADP.
 - ✅ Add a deterministic-seeded, time-bounded Monte Carlo layer that compares leading candidates through the user's following pick and returns expected two-pick value, opportunity cost, confidence, and likely follow-up targets.
 - ✅ Add pre-draft preparation of three free nflverse seasons, recency-weighted player stat forecasts, league-specific scoring translation, floor/median/ceiling ranges, cache-only live reads, and explicit unsupported-setting reporting.
+- ✅ Enrich veteran projections with bounded current depth-chart role adjustments and add high-uncertainty rookie priors from NFL draft capital, combine testing, and depth-chart placement.
 - ✅ Add persistent JSON/CSV import and a ranking-provider interface so large ranking sets do not need to be sent with every call.
 - Add provider adapters for licensed projection/ADP sources after data-source selection.
 - Add licensed/current ADP and projection providers only after choosing acceptable data sources and terms.

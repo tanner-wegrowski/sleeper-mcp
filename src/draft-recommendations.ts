@@ -16,6 +16,10 @@ export interface DraftRanking {
   projection_ceiling?: number;
   projection_confidence?: number;
   projection_source?: "nflverse_history";
+  projection_model?: "veteran_history" | "rookie_prior";
+  role_multiplier?: number;
+  depth_rank?: number | null;
+  rookie_draft_pick?: number;
 }
 
 export interface DraftCandidateScore {

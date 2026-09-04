@@ -27,6 +27,10 @@ export interface ContextualCandidate {
   projection_floor?: number;
   projection_ceiling?: number;
   projection_confidence?: number;
+  projection_model?: "veteran_history" | "rookie_prior";
+  role_multiplier?: number;
+  depth_rank?: number | null;
+  rookie_draft_pick?: number;
   adp_stdev?: number;
   market_sample_size?: number;
   tier?: string;
@@ -160,6 +164,8 @@ export function rankContextualDraftCandidates(
     ];
     if (survival !== null && survival < 0.35) reasons.push(`Only ${Math.round(survival * 100)}% estimated chance to reach your next pick`);
     if (positionPressure >= 0.4) reasons.push(`Draft-room demand is elevated at ${candidate.player.position}`);
+    if (candidate.ranking?.projection_model === "rookie_prior") reasons.push("Rookie projection uses draft capital, combine data, and current depth-chart role");
+    if ((candidate.ranking?.role_multiplier ?? 1) < 0.9) reasons.push("Current depth-chart role reduces the historical-volume projection");
     if (health < 1) reasons.push("Current availability status reduces confidence");
     results.push({
       player: candidate.player,
@@ -170,6 +176,10 @@ export function rankContextualDraftCandidates(
       projection_floor: candidate.ranking?.projection_floor,
       projection_ceiling: candidate.ranking?.projection_ceiling,
       projection_confidence: candidate.ranking?.projection_confidence,
+      projection_model: candidate.ranking?.projection_model,
+      role_multiplier: candidate.ranking?.role_multiplier,
+      depth_rank: candidate.ranking?.depth_rank,
+      rookie_draft_pick: candidate.ranking?.rookie_draft_pick,
       adp_stdev: candidate.ranking?.adp_stdev,
       market_sample_size: candidate.ranking?.times_drafted,
       tier: candidate.ranking?.tier,

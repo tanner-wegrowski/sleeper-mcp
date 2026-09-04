@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildHistoricalProjections,
+  enrichProjectionsWithRolesAndRookies,
   NflverseProjectionProvider,
 } from "../dist/nflverse-projections.js";
 import { scoreHistoricalProjection } from "../dist/projection-scoring.js";
@@ -51,6 +52,32 @@ test("projection scoring applies the league's linear Sleeper settings", () => {
   assert.ok(scored.unsupported_scoring_keys.includes("bonus_rush_yd_100"));
 });
 
+test("depth charts bound veteran roles and draft capital creates rookie priors", () => {
+  const veteran = buildHistoricalProjections([{ season: 2025, rows: [row(2025, 17)] }])[0];
+  const enriched = enrichProjectionsWithRolesAndRookies({
+    projections: [veteran],
+    depthRows: [
+      { dt: "2026-08-01T00:00:00Z", player_name: "Example Runner", pos_abb: "RB", pos_rank: "2" },
+      { dt: "2026-08-01T00:00:00Z", player_name: "Rookie Star", pos_abb: "WR", pos_rank: "1" },
+    ],
+    draftRows: [
+      { season: "2026", round: "1", pick: "12", pfr_player_name: "Rookie Star", position: "WR" },
+    ],
+    combineRows: [
+      { season: "2026", player_name: "Rookie Star", pos: "WR", forty: "4.40", vertical: "38" },
+    ],
+    targetSeason: 2026,
+  });
+  const adjustedVeteran = enriched.find((projection) => projection.name === "Example Runner");
+  const rookie = enriched.find((projection) => projection.name === "Rookie Star");
+  assert.equal(adjustedVeteran.role.multiplier, 0.82);
+  assert.ok(adjustedVeteran.stats.rushing_yards < veteran.stats.rushing_yards);
+  assert.equal(rookie.model_type, "rookie_prior");
+  assert.equal(rookie.rookie.draft_pick, 12);
+  assert.ok(rookie.stats.receiving_yards > 700);
+  assert.ok(rookie.uncertainty > adjustedVeteran.uncertainty);
+});
+
 test("nflverse provider prepares and reuses a projection cache", async () => {
   const directory = await mkdtemp(join(tmpdir(), "sleeper-projections-"));
   const headers = ["player_display_name", "player_name", "position", "season", "games", "carries", "rushing_yards", "rushing_tds", "receptions", "receiving_yards", "receiving_tds", "fumbles_lost_total"];
@@ -68,7 +95,8 @@ test("nflverse provider prepares and reuses a projection cache", async () => {
     assert.equal(first.cache_status, "refreshed");
     assert.equal(second.cache_status, "fresh");
     assert.equal(second.projections.length, 1);
-    assert.equal(calls, 3);
+    assert.equal(calls, 6);
+    assert.equal(first.warnings.length, 2);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

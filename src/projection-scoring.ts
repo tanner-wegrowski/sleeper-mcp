@@ -7,6 +7,17 @@ export interface HistoricalProjection {
   confidence: number;
   uncertainty: number;
   stats: Record<string, number>;
+  model_type?: "veteran_history" | "rookie_prior";
+  role?: {
+    depth_rank: number | null;
+    depth_position: string | null;
+    multiplier: number;
+  };
+  rookie?: {
+    draft_round: number;
+    draft_pick: number;
+    combine_score: number | null;
+  };
 }
 
 const SCORING_FIELDS: Record<string, string> = {

@@ -589,12 +589,18 @@ async function handleGetDraftRecommendations(args: any) {
       scoreHistoricalProjection(projection, league.scoring_settings),
     ]),
   );
+  const rawProjections = new Map(
+    projectionResult.projections.map((projection) => [normalizeProjectionName(projection.name), projection]),
+  );
   const unsupportedScoringKeys = Array.from(new Set(
     Array.from(scoredProjections.values()).flatMap((projection) => projection.unsupported_scoring_keys),
   )).sort();
   const marketRankings = (marketResult?.rankings ?? []).map((ranking) => {
     const projection = ranking.name
       ? scoredProjections.get(normalizeProjectionName(ranking.name))
+      : undefined;
+    const rawProjection = ranking.name
+      ? rawProjections.get(normalizeProjectionName(ranking.name))
       : undefined;
     return projection
       ? {
@@ -604,6 +610,10 @@ async function handleGetDraftRecommendations(args: any) {
           projection_ceiling: projection.ceiling,
           projection_confidence: projection.confidence,
           projection_source: "nflverse_history" as const,
+          projection_model: rawProjection?.model_type,
+          role_multiplier: rawProjection?.role?.multiplier,
+          depth_rank: rawProjection?.role?.depth_rank,
+          rookie_draft_pick: rawProjection?.rookie?.draft_pick,
         }
       : ranking;
   });
@@ -618,6 +628,7 @@ async function handleGetDraftRecommendations(args: any) {
     if (ranking.projected_points !== undefined) return ranking;
     const name = ranking.name ?? (ranking.player_id ? availableById.get(ranking.player_id)?.full_name : undefined);
     const projection = name ? scoredProjections.get(normalizeProjectionName(name)) : undefined;
+    const rawProjection = name ? rawProjections.get(normalizeProjectionName(name)) : undefined;
     return projection
       ? {
           ...ranking,
@@ -626,6 +637,10 @@ async function handleGetDraftRecommendations(args: any) {
           projection_ceiling: projection.ceiling,
           projection_confidence: projection.confidence,
           projection_source: "nflverse_history" as const,
+          projection_model: rawProjection?.model_type,
+          role_multiplier: rawProjection?.role?.multiplier,
+          depth_rank: rawProjection?.role?.depth_rank,
+          rookie_draft_pick: rawProjection?.rookie?.draft_pick,
         }
       : ranking;
   });
@@ -765,6 +780,8 @@ async function handleGetDraftRecommendations(args: any) {
         matched_market_players: marketRankings.filter((ranking) => ranking.projection_source).length,
         unsupported_scoring_keys: unsupportedScoringKeys,
         source_urls: projectionResult.source_urls,
+        warnings: projectionResult.warnings,
+        rookie_projections: projectionResult.projections.filter((projection) => projection.model_type === "rookie_prior").length,
         error: projectionResult.error,
       },
       fallback:
@@ -829,6 +846,7 @@ async function handlePrepareDraftData(args: any) {
       entries: projections.projections.length,
       fetched_at: projections.fetched_at,
       source_urls: projections.source_urls,
+      warnings: projections.warnings,
       error: projections.error,
     },
     message: success
