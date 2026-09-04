@@ -1,5 +1,6 @@
 import { getPickLocation } from "./draft-analysis.js";
 import type { DraftRanking } from "./draft-recommendations.js";
+import { normalizePlayerName } from "./player-name.js";
 import type {
   PlayerWithDetails,
   SleeperDraft,
@@ -29,10 +30,6 @@ export interface DraftRoomModel {
   manager_profiles: DraftManagerProfile[];
 }
 
-function normalizeName(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(jr|sr|ii|iii|iv)$/, "");
-}
-
 function rounded(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
@@ -51,7 +48,7 @@ export function buildDraftRoomModel(input: {
   const marketByName = new Map(
     input.marketRankings
       .filter((ranking) => ranking.name)
-      .map((ranking) => [normalizeName(ranking.name!), ranking.rank]),
+      .map((ranking) => [normalizePlayerName(ranking.name!), ranking.rank]),
   );
   const rosterCounts = new Map<number, Record<string, number>>();
   const rosterPicks = new Map<number, SleeperDraftPick[]>();
@@ -110,7 +107,7 @@ export function buildDraftRoomModel(input: {
     const reaches = picks.flatMap((pick) => {
       const player = input.playerById.get(pick.player_id);
       if (!player) return [];
-      const marketRank = marketByName.get(normalizeName(player.full_name));
+      const marketRank = marketByName.get(normalizePlayerName(player.full_name));
       return marketRank === undefined ? [] : [Math.max(-50, Math.min(50, marketRank - pick.pick_no))];
     });
     profiles.set(rosterId, {

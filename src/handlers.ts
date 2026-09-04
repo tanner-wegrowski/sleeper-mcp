@@ -41,6 +41,7 @@ import { buildDraftRoomModel } from "./draft-room-model.js";
 import { simulateToNextPick } from "./draft-simulation.js";
 import { projectionProvider } from "./nflverse-projections.js";
 import { scoreHistoricalProjection } from "./projection-scoring.js";
+import { normalizePlayerName } from "./player-name.js";
 import {
   applyProjectionCalibration,
   backtestDataProvider,
@@ -592,11 +593,9 @@ async function handleGetDraftRecommendations(args: any) {
     }),
     calibrationProvider.get(league.scoring_settings),
   ]);
-  const normalizeProjectionName = (value: string) =>
-    value.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(jr|sr|ii|iii|iv)$/, "");
   const scoredProjections = new Map(
     projectionResult.projections.map((projection) => [
-      normalizeProjectionName(projection.name),
+      normalizePlayerName(projection.name),
       applyProjectionCalibration(
         scoreHistoricalProjection(projection, league.scoring_settings),
         projection.position,
@@ -605,17 +604,17 @@ async function handleGetDraftRecommendations(args: any) {
     ]),
   );
   const rawProjections = new Map(
-    projectionResult.projections.map((projection) => [normalizeProjectionName(projection.name), projection]),
+    projectionResult.projections.map((projection) => [normalizePlayerName(projection.name), projection]),
   );
   const unsupportedScoringKeys = Array.from(new Set(
     Array.from(scoredProjections.values()).flatMap((projection) => projection.unsupported_scoring_keys),
   )).sort();
   const marketRankings = (marketResult?.rankings ?? []).map((ranking) => {
     const projection = ranking.name
-      ? scoredProjections.get(normalizeProjectionName(ranking.name))
+      ? scoredProjections.get(normalizePlayerName(ranking.name))
       : undefined;
     const rawProjection = ranking.name
-      ? rawProjections.get(normalizeProjectionName(ranking.name))
+      ? rawProjections.get(normalizePlayerName(ranking.name))
       : undefined;
     return projection
       ? {
@@ -642,8 +641,8 @@ async function handleGetDraftRecommendations(args: any) {
   const effectiveRankings = mergedRankings.map((ranking) => {
     if (ranking.projected_points !== undefined) return ranking;
     const name = ranking.name ?? (ranking.player_id ? availableById.get(ranking.player_id)?.full_name : undefined);
-    const projection = name ? scoredProjections.get(normalizeProjectionName(name)) : undefined;
-    const rawProjection = name ? rawProjections.get(normalizeProjectionName(name)) : undefined;
+    const projection = name ? scoredProjections.get(normalizePlayerName(name)) : undefined;
+    const rawProjection = name ? rawProjections.get(normalizePlayerName(name)) : undefined;
     return projection
       ? {
           ...ranking,

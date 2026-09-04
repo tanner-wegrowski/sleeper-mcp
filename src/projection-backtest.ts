@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { buildHistoricalProjections, parseSeasonCsv, STAT_FIELDS } from "./nflverse-projections.js";
 import { defaultDataDirectory } from "./rankings.js";
 import { scoreHistoricalProjection, type HistoricalProjection, type ScoredProjection } from "./projection-scoring.js";
+import { normalizePlayerName } from "./player-name.js";
 
 const POSITIONS = ["QB", "RB", "WR", "TE"];
 
@@ -41,10 +42,6 @@ interface Observation {
   floor: number;
   ceiling: number;
   baseSpread: number;
-}
-
-function normalizedName(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(jr|sr|ii|iii|iv)$/, "");
 }
 
 function numeric(value: string | undefined): number {
@@ -122,12 +119,12 @@ export function runProjectionBacktest(input: {
     }));
     const predictions = buildHistoricalProjections(histories);
     const predictedByKey = new Map(predictions.map((projection) => [
-      `${normalizedName(projection.name)}:${projection.position}`,
+      `${normalizePlayerName(projection.name)}:${projection.position}`,
       projection,
     ]));
     for (const row of input.rowsBySeason.get(evaluationSeason) ?? []) {
       if (!POSITIONS.includes(row.position)) continue;
-      const prediction = predictedByKey.get(`${normalizedName(row.player_display_name || row.player_name)}:${row.position}`);
+      const prediction = predictedByKey.get(`${normalizePlayerName(row.player_display_name || row.player_name)}:${row.position}`);
       if (!prediction) continue;
       const predicted = scoreHistoricalProjection(prediction, input.scoring);
       if (predicted.median < 30) continue;

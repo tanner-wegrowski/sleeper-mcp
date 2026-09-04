@@ -64,6 +64,24 @@ test("market ADP standard deviation controls next-pick uncertainty", () => {
   assert.ok(tight.probability_available_next_pick < wide.probability_available_next_pick);
 });
 
+test("market rankings match Sleeper names when the data source includes a suffix", () => {
+  const cook = player("8138", "RB", 5);
+  cook.full_name = "James Cook";
+  const result = rankContextualDraftCandidates([cook], [
+    {
+      name: "James Cook III",
+      rank: 9.1,
+      source: "ffc_adp",
+      projected_points: 245.2,
+      projection_floor: 160,
+      projection_ceiling: 310,
+    },
+  ], options);
+  assert.equal(result.recommendations[0].rank_source, "ffc_adp");
+  assert.equal(result.recommendations[0].rank, 9.1);
+  assert.equal(result.recommendations[0].projected_points, 245.2);
+});
+
 test("high opponent positional pressure lowers next-pick survival", () => {
   const players = [player("low", "RB", 45), player("high", "WR", 45)];
   const result = rankContextualDraftCandidates(players, [

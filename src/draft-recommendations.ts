@@ -1,4 +1,5 @@
 import type { PlayerWithDetails } from "./types.js";
+import { normalizePlayerName } from "./player-name.js";
 
 export type DraftStrategy = "balanced" | "best_player_available" | "needs_based";
 
@@ -47,10 +48,6 @@ const STRATEGY_WEIGHTS: Record<
   needs_based: { rank: 0.45, rosterNeed: 0.45, scarcity: 0.1 },
 };
 
-function normalizeName(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
 function scoreRank(rank: number): number {
   return Math.max(0, Math.min(100, 101 - rank));
 }
@@ -83,7 +80,7 @@ function findRanking(
 ): DraftRanking | undefined {
   return (
     byId.get(player.player_id) ??
-    byName.get(normalizeName(player.full_name || `${player.first_name} ${player.last_name}`))
+    byName.get(normalizePlayerName(player.full_name || `${player.first_name} ${player.last_name}`))
   );
 }
 
@@ -104,7 +101,7 @@ export function rankDraftCandidates(
   const byName = new Map(
     rankings
       .filter((ranking) => ranking.name)
-      .map((ranking) => [normalizeName(ranking.name!), ranking]),
+      .map((ranking) => [normalizePlayerName(ranking.name!), ranking]),
   );
   const resolved = players
     .map((player) => {

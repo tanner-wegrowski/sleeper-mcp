@@ -3,6 +3,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { z } from "zod";
 import type { DraftRanking } from "./draft-recommendations.js";
+import { normalizePlayerName } from "./player-name.js";
 
 export const DraftRankingSchema = z
   .object({
@@ -176,7 +177,7 @@ export function parseRankings(
 function rankingKey(ranking: DraftRanking): string {
   return ranking.player_id
     ? `id:${ranking.player_id}`
-    : `name:${ranking.name!.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+    : `name:${normalizePlayerName(ranking.name!)}`;
 }
 
 export function mergeRankings(

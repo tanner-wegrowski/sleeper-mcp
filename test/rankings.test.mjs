@@ -71,6 +71,16 @@ test("merge preserves automatic projection metadata beneath user overrides", () 
   assert.equal(merged[0].projected_points, 250);
 });
 
+test("merge treats common generational suffixes as the same player name", () => {
+  const merged = mergeRankings(
+    [{ name: "James Cook III", rank: 9.1, source: "ffc_adp", projected_points: 245.2 }],
+    [{ name: "James Cook", rank: 7, source: "user" }],
+  );
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].rank, 7);
+  assert.equal(merged[0].projected_points, 245.2);
+});
+
 test("file provider persists and replaces a draft ranking set", async () => {
   const directory = await mkdtemp(join(tmpdir(), "sleeper-rankings-"));
   const provider = new FileRankingProvider(directory);

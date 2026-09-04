@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 import type { PlayerWithDetails } from "./types.js";
 import type { DraftRanking, DraftStrategy } from "./draft-recommendations.js";
+import { normalizePlayerName } from "./player-name.js";
 
 export interface ContextualDraftOptions {
   currentPickNo: number;
@@ -54,10 +55,6 @@ export interface ContextualCandidate {
   };
 }
 
-function normalizeName(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
 function clamp(value: number, minimum = 0, maximum = 100): number {
   return Math.max(minimum, Math.min(maximum, value));
 }
@@ -104,9 +101,9 @@ export function rankContextualDraftCandidates(
   const started = performance.now();
   const deadline = started + options.timeBudgetMs;
   const byId = new Map(rankings.filter((item) => item.player_id).map((item) => [item.player_id!, item]));
-  const byName = new Map(rankings.filter((item) => item.name).map((item) => [normalizeName(item.name!), item]));
+  const byName = new Map(rankings.filter((item) => item.name).map((item) => [normalizePlayerName(item.name!), item]));
   const candidates = players.map((player) => {
-    const custom = byId.get(player.player_id) ?? byName.get(normalizeName(player.full_name));
+    const custom = byId.get(player.player_id) ?? byName.get(normalizePlayerName(player.full_name));
     return {
       player,
       ranking: custom,

@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { parseCsvRows, defaultDataDirectory } from "./rankings.js";
 import type { HistoricalProjection } from "./projection-scoring.js";
+import { normalizePlayerName } from "./player-name.js";
 
 interface ProjectionDocument {
   version: 2;
@@ -58,7 +59,7 @@ export function buildHistoricalProjections(
     for (const row of season.rows) {
       const name = row.player_display_name || row.player_name;
       if (!name || !row.position || number(row.games) <= 0) continue;
-      const key = `${name.toLowerCase().replace(/[^a-z0-9]/g, "")}:${row.position}`;
+      const key = `${normalizePlayerName(name)}:${row.position}`;
       const history = byPlayer.get(key) ?? [];
       history.push({ season: season.season, row });
       byPlayer.set(key, history);
@@ -103,10 +104,6 @@ export function buildHistoricalProjections(
     });
   }
   return projections;
-}
-
-function normalizeName(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(jr|sr|ii|iii|iv)$/, "");
 }
 
 function depthMultiplier(position: string, rank: number | null): number {
@@ -170,18 +167,18 @@ export function enrichProjectionsWithRolesAndRookies(input: {
   const latestDepth = new Map<string, Record<string, string>>();
   for (const row of input.depthRows) {
     if (!row.player_name) continue;
-    const key = normalizeName(row.player_name);
+    const key = normalizePlayerName(row.player_name);
     const existing = latestDepth.get(key);
     if (!existing || String(row.dt) > String(existing.dt)) latestDepth.set(key, row);
   }
   const combineByName = new Map(
     input.combineRows
       .filter((row) => number(row.season || row.draft_year) === input.targetSeason && row.player_name)
-      .map((row) => [normalizeName(row.player_name), row]),
+      .map((row) => [normalizePlayerName(row.player_name), row]),
   );
 
   const enriched = input.projections.map((projection) => {
-    const depth = latestDepth.get(normalizeName(projection.name));
+    const depth = latestDepth.get(normalizePlayerName(projection.name));
     const depthRank = depth ? number(depth.pos_rank || depth.depth_team) : null;
     const multiplier = depthMultiplier(projection.position, depthRank);
     return {
@@ -196,19 +193,19 @@ export function enrichProjectionsWithRolesAndRookies(input: {
     };
   });
 
-  const existingNames = new Set(enriched.map((projection) => normalizeName(projection.name)));
+  const existingNames = new Set(enriched.map((projection) => normalizePlayerName(projection.name)));
   for (const draft of input.draftRows) {
     if (number(draft.season) !== input.targetSeason) continue;
     const position = draft.position;
     if (!["QB", "RB", "WR", "TE"].includes(position)) continue;
     const name = draft.pfr_player_name;
-    if (!name || existingNames.has(normalizeName(name))) continue;
+    if (!name || existingNames.has(normalizePlayerName(name))) continue;
     const round = number(draft.round);
     const pick = number(draft.pick);
-    const depth = latestDepth.get(normalizeName(name));
+    const depth = latestDepth.get(normalizePlayerName(name));
     const depthRank = depth ? number(depth.pos_rank || depth.depth_team) : null;
     const roleMultiplier = depthMultiplier(position, depthRank);
-    const athletic = combineMultiplier(position, combineByName.get(normalizeName(name)));
+    const athletic = combineMultiplier(position, combineByName.get(normalizePlayerName(name)));
     const totalMultiplier = draftCapitalMultiplier(round, pick) * roleMultiplier * (athletic ?? 1);
     const stats = Object.fromEntries(
       Object.entries(rookieTemplate(position)).map(([field, value]) => [field, value * totalMultiplier]),
@@ -226,7 +223,7 @@ export function enrichProjectionsWithRolesAndRookies(input: {
       role: { depth_rank: depthRank, depth_position: depth?.pos_abb || null, multiplier: roleMultiplier },
       rookie: { draft_round: round, draft_pick: pick, combine_score: athletic },
     });
-    existingNames.add(normalizeName(name));
+    existingNames.add(normalizePlayerName(name));
   }
   return enriched;
 }
